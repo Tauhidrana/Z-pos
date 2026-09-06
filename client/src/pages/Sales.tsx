@@ -1,4 +1,5 @@
 import { useState, useCallback, lazy, Suspense } from "react";
+import { useLocation, useSearch } from "wouter";
 // import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDateFilter } from "@/hooks/useDateFilter";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -84,7 +85,20 @@ export default function SalesPage() {
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-  const [isNewSaleOpen, setIsNewSaleOpen] = useState(false);
+  // The Scan tab links to /sales?scan=1. Deriving "open" from the URL rather
+  // than syncing it into state from an effect keeps the two from disagreeing,
+  // and means tapping Scan from another page always reopens the dialog.
+  const search = useSearch();
+  const [, navigate] = useLocation();
+  const scanRequested = new URLSearchParams(search).get("scan") === "1";
+  const [manualNewSaleOpen, setManualNewSaleOpen] = useState(false);
+  const isNewSaleOpen = manualNewSaleOpen || scanRequested;
+
+  const closeNewSale = useCallback(() => {
+    setManualNewSaleOpen(false);
+    // Drop ?scan=1, or the dialog would immediately reopen from the URL.
+    if (scanRequested) navigate("/sales", { replace: true });
+  }, [navigate, scanRequested]);
   // const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   // State for history filters
@@ -281,14 +295,14 @@ export default function SalesPage() {
         currentRange={dateFilter.range}
         customFrom={dateFilter.customFrom}
         customTo={dateFilter.customTo}
-        onNewSale={() => setIsNewSaleOpen(true)}
+        onNewSale={() => setManualNewSaleOpen(true)}
       />
 
       {isNewSaleOpen && (
         <Suspense fallback={null}>
           <NewSaleScanModal
             open={isNewSaleOpen}
-            onClose={() => setIsNewSaleOpen(false)}
+            onClose={closeNewSale}
             onCreated={() => {
               refetchHistory();
               refetchUrgent();

@@ -1,42 +1,31 @@
 /**
  * Vercel serverless entry for the API.
  *
- * The filename is a catch-all on purpose. `api/index.ts` only answers `/api`
- * itself, so every real route (`/api/products/get/all`) 404'd before reaching
- * Hono; the optional form `[[...route]]` fared no better here — Vercel compiled
- * it to a single-segment matcher (`^/api/([^/]+)$`) that caught `/api/me` and
- * still missed anything deeper. `[...route]` claims one-or-more segments, which
- * is the whole `/api/*` subtree, and hands the untouched path to the router.
- *
- * `package.json` beside this file sets `"type": "module"`. Without it Vercel's
- * emitted `.js` is loaded as CommonJS and dies on its own `import` statement.
- *
- * The adapter is `@hono/node-server/vercel`, not `hono/vercel`. The latter is
- * for Vercel's Edge runtime and expects a Web `Request`; on the Node runtime it
- * receives Node's `IncomingMessage` and dies with
- * "this.raw.headers.get is not a function" inside the first middleware. Edge is
- * not an option here anyway — Prisma talks to Postgres over TCP.
- *
  * The Hono app is runtime-agnostic — `server/index.ts` only wraps it in
- * `@hono/node-server` for local development — so the same app can be handed to
- * Vercel's Node runtime unchanged. Routes are already registered under
- * `/api/*` inside the app and Vercel passes the full path through, so the
- * app's own router resolves them with no prefix rewrite.
+ * `@hono/node-server` for local development — so the same app is handed to
+ * Vercel's Node runtime here. Routes are already registered under `/api/*`
+ * inside the app and Vercel passes the full path through, so the app's own
+ * router resolves them with no prefix rewrite.
  *
- * `_app.mjs` is produced by the build command, not committed. It has to be a
- * pre-bundled file because Vercel's Node builder only transpiles an entry
- * point — it never resolves the `@/…` and `@myapp/…` TypeScript path aliases
- * that the server source is written against, so importing `@/app` directly
- * builds fine and then dies at runtime with ERR_MODULE_NOT_FOUND. Bundling
- * from inside `server/` resolves those aliases against the tsconfig that
- * defines them, and inlines Prisma's WASM query compiler as base64 so the
- * function needs no sidecar files.
+ * The filename is a catch-all on purpose. `api/index.ts` only answers `/api`
+ * itself, and the optional form `[[...route]]` compiled to a single-segment
+ * matcher that caught `/api/me` and missed anything deeper. `[...route]` claims
+ * one-or-more segments, which is the whole `/api/*` subtree.
  *
- * `validateEnv()` is deliberately not called: it ends the process on a missing
- * variable, which is right for a long-lived server and wrong for a function,
- * where it would turn one bad config into an opaque crash loop.
+ * `_app.mjs` is produced by the build command, not committed: Vercel's Node
+ * builder only transpiles an entry point and never resolves the `@/…` and
+ * `@myapp/…` path aliases the server is written against, so importing `@/app`
+ * directly builds fine and then dies with ERR_MODULE_NOT_FOUND.
+ *
+ * The request bridge is hand-written rather than `@hono/node-server/vercel`.
+ * That adapter builds the request body with `Readable.toWeb(incoming)`, but
+ * Vercel's launcher runs with `shouldAddHelpers: true` and has already drained
+ * the stream into `req.body` by then. Reading the drained stream never yields
+ * and never ends, so every POST/PATCH/PUT hung until Hono's 30s timeout fired
+ * and returned a 504 — checkout would spin forever and then fail. Preferring
+ * the parsed body and only falling back to the stream fixes it.
  */
-import { handle } from "@hono/node-server/vercel";
+import type { IncomingMessage, ServerResponse } from "node:http";
 // @ts-expect-error — generated at build time by `bun build` (see vercel.json).
 import { app } from "./_app.mjs";
 
@@ -44,4 +33,72 @@ export const config = {
   runtime: "nodejs",
 };
 
-export default handle(app);
+/** Re-serialise whatever Vercel's body helper left us, preserving the raw bytes when it did not run. */
+async function readBody(
+  req: IncomingMessage & { body?: unknown },
+): Promise<{ body: BodyInit | undefined; contentType?: string }> {
+  if (req.method === "GET" || req.method === "HEAD") return { body: undefined };
+
+  // Helpers ran: `req.body` is already a string, Buffer or parsed object.
+  if (req.body !== undefined && req.body !== null) {
+    if (typeof req.body === "string") return { body: req.body };
+    if (Buffer.isBuffer(req.body)) return { body: new Uint8Array(req.body) };
+    return { body: JSON.stringify(req.body), contentType: "application/json" };
+  }
+
+  // Helpers did not run (or the body was empty): drain the stream ourselves.
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : (chunk as Buffer));
+  }
+  return { body: chunks.length ? new Uint8Array(Buffer.concat(chunks)) : undefined };
+}
+
+export default async function handler(
+  req: IncomingMessage & { body?: unknown },
+  res: ServerResponse,
+): Promise<void> {
+  const proto = (req.headers["x-forwarded-proto"] as string) ?? "https";
+  const host = (req.headers["x-forwarded-host"] ?? req.headers.host ?? "localhost") as string;
+  const url = new URL(req.url ?? "/", `${proto}://${host}`);
+
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(req.headers)) {
+    if (value === undefined) continue;
+    // Dropped deliberately: the body is re-serialised below, so an inherited
+    // length or chunked marker would describe bytes that no longer exist.
+    if (key === "content-length" || key === "transfer-encoding") continue;
+    if (Array.isArray(value)) value.forEach((v) => headers.append(key, v));
+    else headers.set(key, value);
+  }
+
+  const { body, contentType } = await readBody(req);
+  if (contentType && !headers.has("content-type")) headers.set("content-type", contentType);
+
+  const response = await app.fetch(
+    new Request(url, { method: req.method, headers, body }),
+  );
+
+  res.statusCode = response.status;
+  for (const [key, value] of response.headers) {
+    // `Headers` collapses repeated Set-Cookie into one comma-joined value,
+    // which browsers read as a single malformed cookie.
+    if (key.toLowerCase() === "set-cookie") continue;
+    res.setHeader(key, value);
+  }
+  const cookies =
+    typeof response.headers.getSetCookie === "function"
+      ? response.headers.getSetCookie()
+      : [];
+  if (cookies.length) res.setHeader("set-cookie", cookies);
+
+  if (response.body) {
+    const reader = response.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(Buffer.from(value));
+    }
+  }
+  res.end();
+}

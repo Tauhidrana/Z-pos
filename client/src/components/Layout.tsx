@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useLocation, useRoute } from "wouter";
+import { Link, useLocation, useRoute, useSearch } from "wouter";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -10,6 +10,7 @@ import {
   LogOut,
   User2Icon,
   QrCode,
+  ScanLine,
   Menu,
   X,
   MoreHorizontal,
@@ -46,7 +47,19 @@ const ownerOnlyNavItems = [
  * The destinations that get a permanent tab on phones. Everything else stays
  * one tap away behind "More", which opens the same drawer as the hamburger.
  */
-const bottomTabPaths = ["/", "/pos", "/products", "/sales"] as const;
+const bottomTabPaths = ["/", "/pos", "/sales"] as const;
+
+/**
+ * Scanning takes the slot Products used to hold: at a counter the scanner is
+ * what you reach for constantly, while the catalog is something you open
+ * occasionally and can afford to be one tap deeper (it stays in the drawer).
+ * `?scan=1` tells the Sales page to open the scan-to-sale dialog immediately.
+ */
+const SCAN_TAB = {
+  href: "/sales?scan=1",
+  label: "Scan",
+  icon: ScanLine,
+};
 
 function NavItem({
   path,
@@ -150,6 +163,7 @@ export default function Layout({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [location] = useLocation();
+  const search = useSearch();
 
   // The drawer stores the route it was opened on rather than a bare boolean, so
   // "open" is derived state that a navigation invalidates on its own. A drawer
@@ -167,6 +181,41 @@ export default function Layout({
   const tabs = visibleNavItems.filter((i) =>
     (bottomTabPaths as readonly string[]).includes(i.path),
   );
+
+  // Scan and Sales both live at /sales, so active state is decided here from
+  // the query rather than by each tab matching the route independently.
+  const scanRequested = new URLSearchParams(search).get("scan") === "1";
+  const onSales = location.startsWith("/sales");
+  const isTabActive = (path: string) =>
+    path === "/" ? location === "/" : location.startsWith(path);
+
+  const phoneTabs = [
+    ...tabs
+      .filter((t) => t.path !== "/sales")
+      .map((t) => ({
+        key: t.path,
+        href: t.path,
+        label: t.label,
+        icon: t.icon,
+        active: isTabActive(t.path),
+      })),
+    {
+      key: "scan",
+      href: SCAN_TAB.href,
+      label: SCAN_TAB.label,
+      icon: SCAN_TAB.icon,
+      active: onSales && scanRequested,
+    },
+    ...tabs
+      .filter((t) => t.path === "/sales")
+      .map((t) => ({
+        key: t.path,
+        href: t.path,
+        label: t.label,
+        icon: t.icon,
+        active: onSales && !scanRequested,
+      })),
+  ];
 
   // While the drawer is open the page behind it must not scroll, or a swipe on
   // the overlay drags the content underneath.
@@ -288,8 +337,14 @@ export default function Layout({
 
       {/* ── Mobile bottom tabs ──────────────────────────────────────────── */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 flex items-stretch border-t border-border bg-card pb-[env(safe-area-inset-bottom)]">
-        {tabs.map((tab) => (
-          <BottomTab key={tab.path} {...tab} />
+        {phoneTabs.map((tab) => (
+          <BottomTab
+            key={tab.key}
+            href={tab.href}
+            label={tab.label}
+            icon={tab.icon}
+            active={tab.active}
+          />
         ))}
         <button
           type="button"
@@ -305,21 +360,25 @@ export default function Layout({
 }
 
 function BottomTab({
-  path,
+  href,
   label,
   icon: Icon,
+  active,
 }: {
-  path: string;
+  href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Supplied by the bar: Scan and Sales share a route, so `useRoute` alone
+   *  would light both up at once. */
+  active: boolean;
 }) {
-  const [isActive] = useRoute(path === "/" ? "/" : `${path}*`);
+  const isActive = active;
 
   // "Point of Sale" and "Barcode Generator" do not fit a 60px-wide tab.
   const shortLabel = label === "Point of Sale" ? "POS" : label.split(" ")[0];
 
   return (
-    <Link href={path} className="flex-1">
+    <Link href={href} className="flex-1">
       <span
         className={cn(
           "flex h-full flex-col items-center justify-center gap-0.5 py-2 transition-colors",
