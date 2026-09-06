@@ -58,3 +58,7 @@ desktop.ini
 *.tgz
 /graphify-out/
 .superpowers/
+.vercel
+
+# Built by the Vercel build command from server/src (see vercel.json).
+api/_app.mjs

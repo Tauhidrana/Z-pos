@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    // The server's own tsconfig resolves these against `server/`. This function
+    // lives at the repo root, so the same aliases are re-pointed from here or
+    // every `@/...` import inside server/src fails to resolve at build time.
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["./server/src/*"],
+      "@myapp/shared": ["./packages/shared/src/index.ts"],
+      "@myapp/shared/*": ["./packages/shared/src/*"],
+      "generated/*": ["./server/generated/*"]
+    }
+  },
+  "include": ["./**/*.ts"]
+}

@@ -5,7 +5,27 @@ import { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
 import path from "path";
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command }) => {
+  // The `define` below substitutes React's PRODUCTION runtime, which has no
+  // `jsxDEV`. Vite picks the JSX transform from NODE_ENV — and it honours
+  // NODE_ENV out of .env files, where a developer's local client/.env carries
+  // `NODE_ENV=development`. That combination builds cleanly and then dies on
+  // first paint with "(0 , U.jsxDEV) is not a function": a blank page.
+  //
+  // The build script sets NODE_ENV=production before Vite boots, which is the
+  // only point early enough to win. Assigning it here does not work — Vite has
+  // already read the env files by the time this factory runs — so this only
+  // verifies it, and fails the build rather than shipping a broken bundle.
+  if (command === "build" && process.env.NODE_ENV !== "production") {
+    throw new Error(
+      `Refusing to build with NODE_ENV=${JSON.stringify(process.env.NODE_ENV)}. ` +
+        'Run the build through `bun run build`, which sets NODE_ENV=production. ' +
+        "Building in development mode emits the dev JSX transform against " +
+        "React's production runtime and yields a blank page.",
+    );
+  }
+
+  return {
   plugins: [
     react(),
     tailwindcss(),
@@ -82,4 +102,5 @@ export default defineConfig(({ command }) => ({
       },
     },
   },
-}));
+  };
+});
