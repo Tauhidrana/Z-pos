@@ -14,6 +14,9 @@ import {
 export const server_URI = import.meta.env.VITE_API_URL as string;
 if (!server_URI) throw new Error("Missing VITE_API_URL");
 
+/** Hard deadline for any API call. The server's own timeout is 30s. */
+const REQUEST_TIMEOUT_MS = 45_000;
+
 
 // If you use a custom fetch hook, grab the token like this:
 async function fetchJson<T>(
@@ -42,11 +45,33 @@ async function fetchJson<T>(
     ? JSON.stringify(options.body)
     : options.body;
 
-  const res = await fetch(server_URI + endpoint, {
-    ...options,
-    headers,
-    body,
-  });
+  // Without a deadline a wedged or unreachable server leaves every query
+  // spinning a skeleton and every mutation stuck on "Saving..." forever, with
+  // nothing shown to the user. Abort instead, so react-query can surface a
+  // real error and the UI can recover.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(server_URI + endpoint, {
+      ...options,
+      headers,
+      body,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(
+        "The server did not respond. Check that the API is running, then try again.",
+      );
+    }
+    throw new Error(
+      "Could not reach the server. Check your connection and that the API is running.",
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 
   const contentType = res.headers.get("content-type") || "";
   const isJson = contentType.includes("application/json");
