@@ -6,26 +6,38 @@ import { sendError } from "@/utils/response";
 import { getCachedSession, setCachedSession } from "@/lib/session-cache";
 
 /**
- * Emails provisioned as active OWNERs the first time they sign in, even though
- * nobody invited them.
+ * Addresses that are always admitted as an active OWNER, whatever the database
+ * currently says about them.
  *
- * Access here is invite-only: a Clerk account with no matching `users` row is
- * rejected, and the only way to create that row is the admin UI, which itself
- * requires an account that already has access. A fresh database — or one where
- * the operator's address was recorded with a typo — is therefore unrecoverable
- * without direct SQL. This allowlist is the escape hatch, and it lives in the
- * environment so using it takes deploy access, not merely a sign-up.
+ * Sign-up is self-serve (see `provisionOwner`), so this list is no longer what
+ * grants access — it is what guarantees the operator's own accounts keep it. A
+ * row that was deactivated, or demoted to STAFF by another OWNER, is corrected
+ * on the next cache miss instead of locking the operator out of their own
+ * system with no way back in short of direct SQL.
+ *
+ * The environment variable keeps its old name so existing deployments that set
+ * it carry over unchanged.
  */
-const BOOTSTRAP_OWNER_EMAILS = new Set(
-    (process.env.BOOTSTRAP_OWNER_EMAILS ?? "")
-        .split(",")
+const ADMIN_EMAILS = new Set(
+    [
+        "sabbirahmed565r@gmail.com",
+        ...(process.env.BOOTSTRAP_OWNER_EMAILS ?? "").split(","),
+    ]
         .map((email) => email.trim().toLowerCase())
         .filter(Boolean),
 );
 
-const clerk = createClerkClient({
-    secretKey: process.env.CLERK_SECRET_KEY!,
-});
+/**
+ * Built on first use, not at import. The Clerk API is only consulted on a cold
+ * sign-in — every other request resolves from the cache or `clerk_id` — so a
+ * serverless cold start no longer pays to construct a client it will not call.
+ */
+let clerkClient: ReturnType<typeof createClerkClient> | null = null;
+
+function clerk() {
+    clerkClient ??= createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! });
+    return clerkClient;
+}
 
 /**
  * How often a linked user's Clerk profile (name) is refreshed. This used to
@@ -39,6 +51,23 @@ const PROFILE_SYNC_INTERVAL_MS = Number(
 
 /** internal userId -> timestamp of last background profile refresh */
 const lastProfileSync = new Map<string, number>();
+
+/** The fields every code path below needs to reach an authorization decision. */
+const SESSION_SELECT = {
+    id: true,
+    role: true,
+    is_active: true,
+    shop_id: true,
+    email: true,
+} as const;
+
+type SessionUser = {
+    id: string;
+    role: "OWNER" | "STAFF";
+    is_active: boolean;
+    shop_id: string | null;
+    email: string;
+};
 
 function clerkDisplayName(user: {
     firstName: string | null;
@@ -60,7 +89,7 @@ function refreshProfileInBackground(userId: string, clerkUserId: string): void {
 
     void (async () => {
         try {
-            const clerkUser = await clerk.users.getUser(clerkUserId);
+            const clerkUser = await clerk().users.getUser(clerkUserId);
             const name = clerkDisplayName(clerkUser);
             if (!name) return;
             await prisma.user.update({
@@ -71,6 +100,58 @@ function refreshProfileInBackground(userId: string, clerkUserId: string): void {
             console.error("[syncUser] background profile refresh failed:", err);
         }
     })();
+}
+
+/**
+ * Give a Clerk account that nobody invited its own shop, as an OWNER.
+ *
+ * Access used to be invite-only: a Clerk account with no matching `users` row
+ * was rejected outright, and the only way to create that row was the admin UI,
+ * which itself required an account that already had access. Anyone who signed
+ * up — including the operator on a fresh database — hit "Access denied" on
+ * every call and could not so much as create a category.
+ *
+ * Signing up now provisions the account instead. The shop is new and empty, so
+ * a self-serve owner gets the full app over their own catalog and never sees
+ * another shop's books; the invite flow is untouched, because an invited email
+ * already has a row and is matched below before this ever runs.
+ */
+async function provisionOwner(
+    email: string,
+    clerkUserId: string,
+    name: string | undefined,
+): Promise<SessionUser> {
+    try {
+        const created = await prisma.user.create({
+            data: {
+                email,
+                clerk_id: clerkUserId,
+                name,
+                role: "OWNER",
+                status: "ACCEPTED",
+                is_active: true,
+                // A self-serve owner is a new business, so it gets its own
+                // empty shop — never someone else's books.
+                shop: { create: { name: "My Shop" } },
+            },
+            select: SESSION_SELECT,
+        });
+        console.warn(`[syncUser] provisioned new OWNER ${email} with a fresh shop`);
+        return created;
+    } catch (err) {
+        // The first page load fires several API calls at once, and on a brand
+        // new account every one of them misses the cache and races to create
+        // the same row. Whichever loses on the unique email/clerk_id adopts the
+        // row the winner just wrote rather than failing the request.
+        if ((err as { code?: string }).code === "P2002") {
+            const existing = await prisma.user.findFirst({
+                where: { OR: [{ clerk_id: clerkUserId }, { email }] },
+                select: SESSION_SELECT,
+            });
+            if (existing) return existing;
+        }
+        throw err;
+    }
 }
 
 export async function syncUser(c: Context<AppEnv>, next: Next) {
@@ -88,15 +169,15 @@ export async function syncUser(c: Context<AppEnv>, next: Next) {
 
         // ── 2. Warm path: already linked, so one indexed lookup is enough.
         //       No Clerk API call — clerk_id is the join key. ────────────────
-        let user = await prisma.user.findUnique({
+        let user: SessionUser | null = await prisma.user.findUnique({
             where: { clerk_id: clerkUserId },
-            select: { id: true, role: true, is_active: true, shop_id: true },
+            select: SESSION_SELECT,
         });
 
         // ── 3. Cold path: first sign-in for this Clerk account. We only need
-        //       Clerk here, to resolve the email that the invite was issued to.
+        //       Clerk here, to resolve the email the account signed up with.
         if (!user) {
-            const clerkUser = await clerk.users.getUser(clerkUserId);
+            const clerkUser = await clerk().users.getUser(clerkUserId);
             const email = clerkUser.emailAddresses[0]?.emailAddress;
 
             if (!email) {
@@ -115,76 +196,57 @@ export async function syncUser(c: Context<AppEnv>, next: Next) {
             const invited =
                 (await prisma.user.findUnique({
                     where: { email },
-                    select: { id: true, role: true, is_active: true, status: true, shop_id: true },
+                    select: { ...SESSION_SELECT, status: true },
                 })) ??
                 (await prisma.user.findFirst({
                     where: { email: { equals: email, mode: "insensitive" } },
-                    select: { id: true, role: true, is_active: true, status: true, shop_id: true },
+                    select: { ...SESSION_SELECT, status: true },
                 }));
 
-            // Not in DB = not invited = blocked, unless the environment has
-            // explicitly designated this address as a bootstrap owner.
             if (!invited) {
-                if (!BOOTSTRAP_OWNER_EMAILS.has(email.toLowerCase())) {
-                    return sendError(
-                        c,
-                        "Access denied. Your account has not been granted access to this system.",
-                        "FORBIDDEN",
-                        403,
-                    );
-                }
-
-                const created = await prisma.user.create({
-                    data: {
-                        email,
-                        clerk_id: clerkUserId,
-                        name: clerkDisplayName(clerkUser),
-                        role: "OWNER",
-                        status: "ACCEPTED",
-                        is_active: true,
-                        // A bootstrap owner is a new business, so it gets its
-                        // own empty shop — never someone else's books.
-                        shop: { create: { name: "My Shop" } },
-                    },
-                    select: { id: true, role: true, is_active: true, shop_id: true },
-                });
-
-                console.warn(
-                    `[syncUser] bootstrapped OWNER ${email} from BOOTSTRAP_OWNER_EMAILS`,
+                // Nobody invited this address — sign them up with their own shop.
+                user = await provisionOwner(
+                    email,
+                    clerkUserId,
+                    clerkDisplayName(clerkUser),
                 );
-
-                lastProfileSync.set(created.id, Date.now());
-                setCachedSession(clerkUserId, {
-                    userId: created.id,
-                    role: created.role,
-                    shopId: created.shop_id!,
+                lastProfileSync.set(user.id, Date.now());
+            } else {
+                // Link the Clerk account to the invited row so every later
+                // request takes the warm path above.
+                await prisma.user.update({
+                    where: { id: invited.id },
+                    data: {
+                        clerk_id: clerkUserId,
+                        status: invited.status === "PENDING" ? "ACCEPTED" : invited.status,
+                        name: clerkDisplayName(clerkUser),
+                    },
                 });
-                c.set("userId", created.id);
-                c.set("userRole", created.role);
-                c.set("shopId", created.shop_id!);
-                return next();
+
+                lastProfileSync.set(invited.id, Date.now());
+                user = {
+                    id: invited.id,
+                    role: invited.role,
+                    is_active: invited.is_active,
+                    shop_id: invited.shop_id,
+                    email: invited.email,
+                };
             }
-
-            // Link the Clerk account to the invited row so every later request
-            // takes the warm path above.
-            await prisma.user.update({
-                where: { id: invited.id },
-                data: {
-                    clerk_id: clerkUserId,
-                    status: invited.status === "PENDING" ? "ACCEPTED" : invited.status,
-                    name: clerkDisplayName(clerkUser),
-                },
-            });
-
-            lastProfileSync.set(invited.id, Date.now());
-            user = {
-                id: invited.id,
-                role: invited.role,
-                is_active: invited.is_active,
-                shop_id: invited.shop_id,
-            };
         } else {
             refreshProfileInBackground(user.id, clerkUserId);
+        }
+
+        // Re-assert the operator's own accounts on every cache miss, so a
+        // deactivation or demotion can never lock them out of the admin area.
+        if (
+            ADMIN_EMAILS.has(user.email.toLowerCase()) &&
+            (!user.is_active || user.role !== "OWNER")
+        ) {
+            user = await prisma.user.update({
+                where: { id: user.id },
+                data: { role: "OWNER", is_active: true },
+                select: SESSION_SELECT,
+            });
         }
 
         // In DB but deactivated = blocked. Checked before caching so a
