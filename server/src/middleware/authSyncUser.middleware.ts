@@ -5,6 +5,24 @@ import prisma from "@/lib/prisma";
 import { sendError } from "@/utils/response";
 import { getCachedSession, setCachedSession } from "@/lib/session-cache";
 
+/**
+ * Emails provisioned as active OWNERs the first time they sign in, even though
+ * nobody invited them.
+ *
+ * Access here is invite-only: a Clerk account with no matching `users` row is
+ * rejected, and the only way to create that row is the admin UI, which itself
+ * requires an account that already has access. A fresh database — or one where
+ * the operator's address was recorded with a typo — is therefore unrecoverable
+ * without direct SQL. This allowlist is the escape hatch, and it lives in the
+ * environment so using it takes deploy access, not merely a sign-up.
+ */
+const BOOTSTRAP_OWNER_EMAILS = new Set(
+    (process.env.BOOTSTRAP_OWNER_EMAILS ?? "")
+        .split(",")
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean),
+);
+
 const clerk = createClerkClient({
     secretKey: process.env.CLERK_SECRET_KEY!,
 });
@@ -89,19 +107,53 @@ export async function syncUser(c: Context<AppEnv>, next: Next) {
                 );
             }
 
-            const invited = await prisma.user.findUnique({
-                where: { email },
-                select: { id: true, role: true, is_active: true, status: true },
-            });
+            // Clerk normalizes addresses to lower case, but an invite typed
+            // into the admin form can carry capitals. The exact match runs
+            // first so the common case stays on the unique index; the
+            // insensitive pass only costs a query when that misses.
+            const invited =
+                (await prisma.user.findUnique({
+                    where: { email },
+                    select: { id: true, role: true, is_active: true, status: true },
+                })) ??
+                (await prisma.user.findFirst({
+                    where: { email: { equals: email, mode: "insensitive" } },
+                    select: { id: true, role: true, is_active: true, status: true },
+                }));
 
-            // Not in DB = not invited = blocked
+            // Not in DB = not invited = blocked, unless the environment has
+            // explicitly designated this address as a bootstrap owner.
             if (!invited) {
-                return sendError(
-                    c,
-                    "Access denied. Your account has not been granted access to this system.",
-                    "FORBIDDEN",
-                    403,
+                if (!BOOTSTRAP_OWNER_EMAILS.has(email.toLowerCase())) {
+                    return sendError(
+                        c,
+                        "Access denied. Your account has not been granted access to this system.",
+                        "FORBIDDEN",
+                        403,
+                    );
+                }
+
+                const created = await prisma.user.create({
+                    data: {
+                        email,
+                        clerk_id: clerkUserId,
+                        name: clerkDisplayName(clerkUser),
+                        role: "OWNER",
+                        status: "ACCEPTED",
+                        is_active: true,
+                    },
+                    select: { id: true, role: true, is_active: true },
+                });
+
+                console.warn(
+                    `[syncUser] bootstrapped OWNER ${email} from BOOTSTRAP_OWNER_EMAILS`,
                 );
+
+                lastProfileSync.set(created.id, Date.now());
+                setCachedSession(clerkUserId, { userId: created.id, role: created.role });
+                c.set("userId", created.id);
+                c.set("userRole", created.role);
+                return next();
             }
 
             // Link the Clerk account to the invited row so every later request

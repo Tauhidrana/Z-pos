@@ -1,5 +1,6 @@
 import { Role, SaleStatus, PaymentMethod, StockMovementType, StockDirection, BarcodeStatus } from "../generated/prisma";
 import prisma from "../src/lib/prisma";
+import { generateEAN13 } from "../src/lib/barcode";
 import { Decimal } from "../generated/prisma/runtime/client";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -234,10 +235,15 @@ async function main() {
     console.log("✅ Products & variants created");
 
     // ── Barcodes ──────────────────────────────────────────────────────────────────
-    // Generate a pool of barcodes, then allocate them during purchase creation
+    // Generate a pool of barcodes, then allocate them during purchase creation.
+    //
+    // These must be real EAN-13, exactly as the purchase flow issues them. The
+    // seed used to emit `BC00000001`-style placeholders, which no scanner can
+    // read and which `saleSchema` rejects outright (it requires exactly 13
+    // characters) — so every seeded product was impossible to sell.
     const barcodePool: { code: string }[] = [];
     for (let i = 1; i <= 120; i++) {
-        barcodePool.push({ code: `BC${String(i).padStart(8, "0")}` });
+        barcodePool.push({ code: generateEAN13(i) });
     }
 
     // Upsert barcodes

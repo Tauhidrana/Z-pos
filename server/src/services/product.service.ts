@@ -15,11 +15,17 @@ export const ProductService = {
         const offset = (page - 1) * pageSize;
 
         // ── Search clause ──────────────────────────────────────────────────────
+        // Filtered AFTER the CTE, alongside the status clause, so it must use
+        // the CTE's output columns (`name`, `category`). The `p.`/`c.` aliases
+        // only exist inside `computed`, and referencing them out here made
+        // Postgres reject the whole statement with "missing FROM-clause entry
+        // for table p" — every search, on every keystroke, returned a 500.
+        // ILIKE is already case-insensitive, so LOWER() added nothing.
         const searchClause =
             search.trim() !== ""
                 ? Prisma.sql`AND (
-                LOWER(p.name)   ILIKE ${"%" + search.trim().toLowerCase() + "%"}
-                OR LOWER(c.name) ILIKE ${"%" + search.trim().toLowerCase() + "%"}
+                name       ILIKE ${"%" + search.trim() + "%"}
+                OR category ILIKE ${"%" + search.trim() + "%"}
               )`
                 : Prisma.empty;
 
