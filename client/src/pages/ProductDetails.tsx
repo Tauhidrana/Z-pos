@@ -97,7 +97,7 @@ export default function ProductDetailPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 sm:py-8 space-y-6 sm:space-y-8">
         {/* ── Page header ───────────────────────────────────────────── */}
         <div className="flex items-center gap-4">
           <Button
@@ -830,7 +830,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-card border rounded-xl p-6 space-y-5 shadow-sm">
+    <div className="bg-card border rounded-xl p-4 sm:p-6 space-y-4 sm:space-y-5 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
           {icon && (

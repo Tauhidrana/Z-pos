@@ -171,16 +171,19 @@ export default function Customers() {
   };
 
   return (
-    <div className="p-6 space-y-5">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Customers</h1>
+          <h1 className="text-xl sm:text-2xl font-bold">Customers</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {customers.length} total customers
           </p>
         </div>
-        <Button onClick={() => setOpenAddNewCustomerModal(true)}>
+        <Button
+          onClick={() => setOpenAddNewCustomerModal(true)}
+          className="w-full sm:w-auto"
+        >
           <Plus className="w-4 h-4 mr-2" />
           Add Customer
         </Button>
@@ -190,11 +193,13 @@ export default function Customers() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {stats.map((s) => (
           <Card key={s.label} className="border border-border">
-            <CardContent className="p-4 flex items-center gap-3">
-              <s.icon className={`w-5 h-5 ${s.color}`} />
-              <div>
-                <p className="text-xl font-bold">{s.value}</p>
-                <p className="text-xs text-muted-foreground">{s.label}</p>
+            <CardContent className="p-3 sm:p-4 flex items-center gap-2.5 sm:gap-3">
+              <s.icon className={`w-5 h-5 shrink-0 ${s.color}`} />
+              <div className="min-w-0">
+                <p className="text-lg sm:text-xl font-bold">{s.value}</p>
+                <p className="text-xs text-muted-foreground leading-tight">
+                  {s.label}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -202,8 +207,8 @@ export default function Customers() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-48">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+        <div className="relative flex-1 sm:min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             value={search}
@@ -214,7 +219,7 @@ export default function Customers() {
               setPage(1);
             }}
             placeholder="Search by name or email..."
-            className="pl-9 h-9"
+            className="pl-9 h-10 sm:h-9"
           />
         </div>
         <div className="flex gap-1 bg-muted rounded-lg p-1">
@@ -225,7 +230,7 @@ export default function Customers() {
                 setStatusFilter(s);
                 setPage(1);
               }}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-all capitalize ${statusFilter === s ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+              className={`flex-1 sm:flex-none px-3 py-1.5 rounded-md text-xs font-medium transition-all capitalize ${statusFilter === s ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
             >
               {s}
             </button>
@@ -233,8 +238,104 @@ export default function Customers() {
         </div>
       </div>
 
-      {/* Table */}
-      <Card className="border border-border overflow-hidden">
+      {/* Mobile list — eight columns cannot be read on a phone, so each
+          customer becomes a card with the same fields and actions. */}
+      <div className="space-y-2.5 md:hidden">
+        {isCustomerFetching
+          ? Array.from({ length: 6 }).map((_, i) => (
+              <Card key={i} className="border border-border">
+                <CardContent className="p-4 space-y-2">
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-3 w-2/3" />
+                </CardContent>
+              </Card>
+            ))
+          : customers.map((p) => (
+              <Card key={p.id} className="border border-border">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium leading-tight break-words">
+                        {p.name || "Unknown"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5 break-all">
+                        {p.phone || "No phone"}
+                        {p.email ? ` · ${p.email}` : ""}
+                      </p>
+                    </div>
+                    <span
+                      className={cn(
+                        "shrink-0 px-2 py-0.5 rounded text-xs font-medium",
+                        p.status === "ACTIVE" && "bg-green-100 text-green-600",
+                        p.status === "INACTIVE" && "bg-red-100 text-red-600",
+                      )}
+                    >
+                      {p.status}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Orders</p>
+                      <p className="font-medium">{p.totalOrders ?? 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Spent</p>
+                      <p className="font-medium">
+                        {formatCurrencyInBDT(p.totalSpent ?? 0)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">
+                        Last visit
+                      </p>
+                      <p className="font-medium">
+                        {p.lastVisit ? formatDate(p.lastVisit, "dd MMM yy") : "—"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-end gap-1 border-t pt-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        openUpdateModal({
+                          id: p.id,
+                          name: p.name,
+                          email: p.email,
+                          address: p.address,
+                          phone: p.phone,
+                        })
+                      }
+                    >
+                      <Edit2 className="w-3.5 h-3.5 mr-1.5" />
+                      Edit
+                    </Button>
+                    <ToggleStatusModal
+                      handleToggleStatus={handleDeleteCustomer}
+                      isActive={p.status === "ACTIVE"}
+                      isPending={isDeletePending}
+                      id={p.id}
+                      name={p.name}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+
+        {customers.length === 0 && !isCustomerFetching && (
+          <Card className="border border-border">
+            <CardContent className="py-14 text-center text-muted-foreground">
+              <Users className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <p>No customers found</p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Table (md and up) */}
+      <Card className="border border-border overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -367,12 +468,9 @@ export default function Customers() {
         onLimitChange={setPageSize}
       />
 
-      {customers.length === 0 && (
-        <div className="py-20 text-center text-muted-foreground">
-          <Search className="w-10 h-10 mx-auto mb-2 opacity-30" />
-          <p>No customers found</p>
-        </div>
-      )}
+      {/* The empty state is rendered by the list itself (card list on mobile,
+          table on desktop). A second copy here showed "No customers found"
+          twice on one screen. */}
       <AddCustomerModal
         handleCreateCustomer={handleCreateNewCustomer}
         isCreating={isCreatingNewCustomer}

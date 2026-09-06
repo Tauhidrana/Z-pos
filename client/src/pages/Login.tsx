@@ -9,7 +9,7 @@ export default function Login() {
   if (isLoaded && isSignedIn) return <Redirect to="/" />;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
+    <div className="min-h-[100dvh] flex items-center justify-center bg-background p-4">
       <SignIn routing="hash" />
     </div>
   );

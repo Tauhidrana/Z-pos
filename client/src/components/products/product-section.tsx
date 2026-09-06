@@ -135,11 +135,11 @@ export default function ProductSection({
   const flatCategories = flattenCategories(categories);
   return (
     <section>
-      <div className="p-6 space-y-5">
+      <div className="p-4 sm:p-6 space-y-4 sm:space-y-5">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Products</h1>
+            <h1 className="text-xl sm:text-2xl font-bold">Products</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               Manage your product catalog
             </p>
@@ -154,11 +154,13 @@ export default function ProductSection({
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {stats.map((s) => (
             <Card key={s.label} className="border border-border">
-              <CardContent className="p-4 flex items-center gap-3">
-                <s.icon className={`w-5 h-5 ${s.color}`} />
-                <div>
-                  <p className="text-xl font-bold">{s.value}</p>
-                  <p className="text-xs text-muted-foreground">{s.label}</p>
+              <CardContent className="p-3 sm:p-4 flex items-center gap-2.5 sm:gap-3">
+                <s.icon className={`w-5 h-5 shrink-0 ${s.color}`} />
+                <div className="min-w-0">
+                  <p className="text-lg sm:text-xl font-bold">{s.value}</p>
+                  <p className="text-xs text-muted-foreground leading-tight">
+                    {s.label}
+                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -166,8 +168,8 @@ export default function ProductSection({
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap gap-3">
-          <div className="relative flex-1 min-w-48">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+          <div className="relative flex-1 sm:min-w-48">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               value={search}
@@ -176,7 +178,7 @@ export default function ProductSection({
                 setPage(1);
               }}
               placeholder="Search name..."
-              className="pl-9 h-9"
+              className="pl-9 h-10 sm:h-9"
             />
           </div>
           <Select
@@ -186,7 +188,7 @@ export default function ProductSection({
               setPage(1);
             }}
           >
-            <SelectTrigger className="h-9 w-40">
+            <SelectTrigger className="h-10 sm:h-9 w-full sm:w-40">
               <Filter className="w-3.5 h-3.5 mr-2 text-muted-foreground" />
               <SelectValue />
             </SelectTrigger>
@@ -210,8 +212,89 @@ export default function ProductSection({
           </div> */}
         </div>
 
-        {/* Table */}
-        <Card className="border border-border overflow-hidden">
+        {/* Mobile list — a six-column table can only scroll sideways on a
+            phone, which hides the actions people came for. Same data, stacked. */}
+        <div className="space-y-2.5 md:hidden">
+          {isFetching && !products.length
+            ? Array.from({ length: 6 }).map((_, i) => (
+                <Card key={i} className="border border-border">
+                  <CardContent className="p-4 space-y-2">
+                    <Skeleton className="h-4 w-2/3" />
+                    <Skeleton className="h-3 w-1/3" />
+                  </CardContent>
+                </Card>
+              ))
+            : products.map((p) => (
+                <Card key={p.id} className="border border-border">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium leading-tight break-words">
+                          {p.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {p.category}
+                        </p>
+                      </div>
+                      <StatusBadge status={p.status} />
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-4 text-sm">
+                        <span className="text-muted-foreground">
+                          Stock{" "}
+                          <span
+                            className={
+                              p.stock <= 5
+                                ? "text-red-600 font-semibold"
+                                : p.stock <= 20
+                                  ? "text-amber-600 font-semibold"
+                                  : "text-foreground font-medium"
+                            }
+                          >
+                            {p.stock}
+                          </span>
+                        </span>
+                        <span className="text-muted-foreground">
+                          Variants{" "}
+                          <span className="text-foreground font-medium">
+                            {p.variants}
+                          </span>
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          onClick={() => navigate(`/products/${p.id}`)}
+                          size="icon"
+                          variant="ghost"
+                          aria-label={`Open ${p.name}`}
+                        >
+                          <ArrowUpRight className="w-4 h-4" />
+                        </Button>
+                        <DeleteItemModal
+                          handleDelete={handleDeleteProduct}
+                          isPending={isDeletePending}
+                          id={p.id}
+                        />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+
+          {products.length === 0 && !isFetching && (
+            <Card className="border border-border">
+              <CardContent className="py-14 text-center text-muted-foreground">
+                <Package className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                <p>No products found</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+
+        {/* Table (md and up) */}
+        <Card className="border border-border overflow-hidden hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>

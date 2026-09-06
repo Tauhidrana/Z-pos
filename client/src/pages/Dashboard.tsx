@@ -102,16 +102,18 @@ export default function Dashboard() {
     },
   ];
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-5 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground">
+            Dashboard
+          </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {formatDate(new Date(), "EEEE, MMMM d, yyyy")}
           </p>
         </div>
-        <Button asChild>
+        <Button asChild className="w-full sm:w-auto">
           <Link href="/pos">
             <ShoppingBag className="w-4 h-4 mr-2" />
             New Sale
@@ -120,14 +122,16 @@ export default function Dashboard() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {stats.map((stat) => (
           <Card key={stat.label}>
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  <p className="font-serif text-2xl font-semibold text-foreground mt-1">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm text-muted-foreground leading-tight">
+                    {stat.label}
+                  </p>
+                  <p className="font-serif text-xl sm:text-2xl font-semibold text-foreground mt-1 break-all">
                     {stat.value}
                   </p>
                   <div className="flex items-center gap-1 mt-1.5">
@@ -141,12 +145,13 @@ export default function Dashboard() {
                     >
                       {stat.change}
                     </span>
-                    <span className="text-xs text-muted-foreground">
+                    {/* Half-width stat cards have no room for this. */}
+                    <span className="hidden sm:inline text-xs text-muted-foreground">
                       vs yesterday
                     </span>
                   </div>
                 </div>
-                <div className="p-2.5 rounded-xl bg-accent text-accent-foreground">
+                <div className="hidden sm:block p-2.5 rounded-xl bg-accent text-accent-foreground shrink-0">
                   <stat.icon className="w-5 h-5" />
                 </div>
               </div>
@@ -156,7 +161,7 @@ export default function Dashboard() {
       </div>
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 sm:gap-4">
         {/* Weekly Sales Chart */}
         <Card className="xl:col-span-2">
           <CardHeader className="pb-2">
@@ -226,7 +231,7 @@ export default function Dashboard() {
       </div>
 
       {/* Bottom Row */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
         {/* Recent Orders */}
         <Card className="border border-border">
           <CardHeader className="pb-2">

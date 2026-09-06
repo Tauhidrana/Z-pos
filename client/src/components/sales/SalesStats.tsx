@@ -57,10 +57,10 @@ export function StatCards({ metrics, isLoading }: StatCardsProps) {
 
   if (isLoading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {[...Array(4)].map((_, i) => (
           <Card key={i} className="bg-card">
-            <CardContent className="p-6">
+            <CardContent className="p-4 sm:p-6">
               <Skeleton className="h-6 w-24 mb-2" />
               <Skeleton className="h-8 w-32 mb-2" />
               <Skeleton className="h-4 w-20" />
@@ -73,14 +73,16 @@ export function StatCards({ metrics, isLoading }: StatCardsProps) {
 
   return (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {stats?.map((stat) => (
           <Card key={stat.label} className="border border-border">
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  <p className="text-2xl font-bold text-foreground mt-1">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs sm:text-sm text-muted-foreground leading-tight">
+                    {stat.label}
+                  </p>
+                  <p className="text-lg sm:text-2xl font-bold text-foreground mt-1 break-all">
                     {stat.value}
                   </p>
                   <div className="flex items-center gap-1 mt-1.5">
@@ -94,12 +96,14 @@ export function StatCards({ metrics, isLoading }: StatCardsProps) {
                     >
                       {stat.change}
                     </span>
-                    <span className="text-xs text-muted-foreground">
+                    {/* The comparison label is the first thing to go when a
+                        card is only half a phone wide. */}
+                    <span className="hidden sm:inline text-xs text-muted-foreground">
                       vs last period
                     </span>
                   </div>
                 </div>
-                <div className={`p-2.5 rounded-xl ${stat.color}`}>
+                <div className={`hidden sm:block p-2.5 rounded-xl shrink-0 ${stat.color}`}>
                   <stat.icon className="w-5 h-5" />
                 </div>
               </div>

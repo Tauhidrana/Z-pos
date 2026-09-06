@@ -208,7 +208,7 @@ export function CheckoutForm({
   }
 
   return (
-    <DialogContent className="max-w-sm p-0 overflow-hidden gap-0">
+    <DialogContent className="max-w-sm p-0 sm:p-0 gap-0 max-h-[90dvh] overflow-y-auto">
       {/* Header */}
       <div className="px-5 pt-5 pb-0">
         <DialogHeader className="mb-3">

@@ -113,19 +113,19 @@ export default function PurchasesPage() {
     <div className="min-h-screen bg-background">
       {/* Header Section */}
       <div className="border-b border-border bg-card sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
                 Purchases
               </h1>
               <p className="text-sm text-muted-foreground mt-1">
                 Manage purchase orders and supplier inventory
               </p>
             </div>
-            <Link href={"/purchases/new"}>
+            <Link href={"/purchases/new"} className="shrink-0">
               <Button
-                className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 font-medium"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2 font-medium w-full sm:w-auto"
                 size="lg"
               >
                 <Plus className="w-5 h-5" />
@@ -137,18 +137,18 @@ export default function PurchasesPage() {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-8">
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
           {stats.map((stat, idx) => (
-            <Card key={idx} className="p-5 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between gap-4">
+            <Card key={idx} className="p-4 sm:p-5 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between gap-2 sm:gap-4">
                 <div className="flex-1">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  <p className="text-[11px] sm:text-xs font-medium text-muted-foreground uppercase tracking-wide leading-tight">
                     {stat.label}
                   </p>
                   <div className="flex items-baseline gap-2 mt-2">
-                    <p className="text-3xl font-bold text-foreground">
+                    <p className="text-xl sm:text-3xl font-bold text-foreground break-all">
                       {stat.value}
                     </p>
                   </div>
@@ -157,7 +157,7 @@ export default function PurchasesPage() {
                   </p>
                 </div>
                 <div
-                  className={`${stat.color} rounded-lg p-3 text-white flex-shrink-0`}
+                  className={`${stat.color} hidden sm:flex rounded-lg p-3 text-white flex-shrink-0`}
                 >
                   {stat.icon}
                 </div>
@@ -167,22 +167,22 @@ export default function PurchasesPage() {
         </div>
 
         {/* Main Content Area */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Left Side - Form and History */}
           <div className="col-span-3 space-y-6">
             {/* Purchase History */}
-            <Card className="p-6">
-              <div className="flex items-center justify-between gap-4 mb-6">
+            <Card className="p-4 sm:p-6">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 mb-4 sm:mb-6">
                 <div>
-                  <h2 className="text-xl font-bold text-foreground">
+                  <h2 className="text-lg sm:text-xl font-bold text-foreground">
                     Purchase History
                   </h2>
                   <p className="text-sm text-muted-foreground mt-1">
                     Track all purchase orders
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="relative w-lg">
+                <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                  <div className="relative w-full sm:w-80">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
                     <Input
                       placeholder="Search orders..."
@@ -222,7 +222,7 @@ export default function PurchasesPage() {
                   </Select> */}
                 </div>
               </div>
-              <div className="border-t border-border pt-6">
+              <div className="border-t border-border pt-4 sm:pt-6">
                 <PurchaseHistory
                   handleDelete={handleDeletePurchase}
                   isDeletePending={isDeletePending}

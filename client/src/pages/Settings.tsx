@@ -45,13 +45,13 @@ export default function Settings() {
   };
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <div className="mb-6">
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Manage your store preferences</p>
       </div>
 
-      <div className="flex gap-6">
+      <div className="flex flex-col gap-4 sm:gap-6 md:flex-row">
         {/* Sidebar */}
         <div className="w-52 shrink-0">
           <nav className="space-y-1">
@@ -81,7 +81,7 @@ export default function Settings() {
                 <CardTitle className="text-base">Store Information</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label>Store Name</Label>
                     <Input defaultValue="ShopPOS Retail" className="mt-1" />
@@ -130,7 +130,7 @@ export default function Settings() {
                   </div>
                   <Button variant="outline" size="sm" className="ml-auto">Change Photo</Button>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label>First Name</Label>
                     <Input defaultValue="Admin" className="mt-1" />

@@ -34,6 +34,7 @@ import type {
 import { playSoundWithCacheInstance } from "@/lib/sound";
 import { CheckoutModal } from "@/components/pos/checkout-modal";
 import { useDebounce } from "@/hooks/useDebounce";
+import { getProductByBarcode } from "@/lib/barcode-lookup";
 import Pagination from "@/components/pagination";
 import { useAuth } from "@clerk/react";
 
@@ -49,28 +50,6 @@ type CartItem = {
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-
-async function getProductByBarcode(
-  barcode: string,
-  getToken: () => Promise<string | null>,
-): Promise<CartEntryProduct | null> {
-  try {
-    const token = await getToken();
-    const res = await fetch(
-      `${server_URI}/products/get/by-barcode/${barcode}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    );
-    if (!res.ok) return null;
-    const result: { data: CartEntryProduct } = await res.json();
-    return result.data ?? null;
-  } catch {
-    return null;
-  }
-}
 
 async function getCartItemByProductId(
   productId: string,
@@ -243,6 +222,10 @@ export default function PointOfSale() {
       ),
     );
 
+  // On phones the cart is a bottom sheet rather than a second column; there is
+  // no room for a 384px panel beside the product list.
+  const [cartOpen, setCartOpen] = useState(false);
+
   // ── Checkout ───────────────────────────────────────────────────────────────
 
   const handleConfirmPayment = (payload: CheckoutPayload) => {
@@ -272,6 +255,29 @@ export default function PointOfSale() {
       },
     );
   };
+
+  const handleProductPick = useCallback(
+    async (p: ProductTableRow) => {
+      if (p.stock === 0) {
+        toast.error(`${p.name} is out of stock`);
+        return;
+      }
+      if (p.variants > 1) {
+        toast.info(`${p.name} has multiple variants — scan a barcode to select one`);
+        hidInputRef.current?.focus();
+        return;
+      }
+      const item = await getCartItemByProductId(p.id, getToken);
+      if (item) {
+        addToCart(item);
+        playSoundWithCacheInstance("beep");
+      } else {
+        toast.error(`Could not add ${p.name} to cart`);
+        playSoundWithCacheInstance("error_beep");
+      }
+    },
+    [addToCart, getToken],
+  );
 
   function handleCheckout() {
     resetCreateSale();
@@ -338,7 +344,7 @@ export default function PointOfSale() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* ── Products panel ──────────────────────────────────────────────── */}
-        <div className="flex-1 flex flex-col min-w-0 border-r border-border">
+        <div className="flex-1 flex flex-col min-w-0 md:border-r md:border-border">
           {/* Search bar */}
           <div className="flex gap-2 px-4 py-3 border-b border-border bg-background">
             <div className="relative w-full">
@@ -355,8 +361,58 @@ export default function PointOfSale() {
             </div>
           </div>
 
+          {/* Product list — phones get tappable rows; the five-column table
+              below takes over from md up. */}
+          <div className="flex-1 overflow-auto md:hidden divide-y divide-border">
+            {isFetchingProducts &&
+              Array.from({ length: pageSize }).map((_, i) => (
+                <div key={i} className="px-4 py-3">
+                  <Skeleton className="h-4 w-2/3 mb-2" />
+                  <Skeleton className="h-3 w-1/3" />
+                </div>
+              ))}
+
+            {!isFetchingProducts &&
+              productsData.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => void handleProductPick(p)}
+                  className="w-full px-4 py-3 text-left transition-colors active:bg-primary/10"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{p.name}</p>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        {p.category}
+                        {p.variants > 1 ? ` · ${p.variants} variants` : ""}
+                      </p>
+                    </div>
+                    <StockBadge stock={p.stock} status={p.status} />
+                  </div>
+                </button>
+              ))}
+
+            {!isFetchingProducts && isProductsError && (
+              <div className="py-16 text-center text-destructive">
+                <AlertTriangle className="w-8 h-8 mx-auto mb-2 opacity-60" />
+                <p className="text-sm">Failed to load products</p>
+                <button onClick={() => refetchProducts()} className="text-sm underline mt-1">
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {!isFetchingProducts && !isProductsError && productsData.length === 0 && (
+              <div className="py-16 text-center text-muted-foreground">
+                <Package className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No products found</p>
+              </div>
+            )}
+          </div>
+
           {/* Product table */}
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto hidden md:block">
             <table className="w-full text-sm">
               <thead className="sticky top-0 z-10 bg-muted/60 backdrop-blur-sm border-b border-border">
                 <tr>
@@ -391,25 +447,7 @@ export default function PointOfSale() {
                   productsData.map((p) => (
                     <tr
                       key={p.id}
-                      onClick={async () => {
-                        if (p.stock === 0) {
-                          toast.error(`${p.name} is out of stock`);
-                          return;
-                        }
-                        if (p.variants > 1) {
-                          toast.info(`${p.name} has multiple variants — scan a barcode to select one`);
-                          hidInputRef.current?.focus();
-                          return;
-                        }
-                        const item = await getCartItemByProductId(p.id, getToken);
-                        if (item) {
-                          addToCart(item);
-                          playSoundWithCacheInstance("beep");
-                        } else {
-                          toast.error(`Could not add ${p.name} to cart`);
-                          playSoundWithCacheInstance("error_beep");
-                        }
-                      }}
+                      onClick={() => void handleProductPick(p)}
                       className="hover:bg-primary/5 transition-colors cursor-pointer"
                     >
                       <td className="px-4 py-3 font-medium truncate max-w-0">
@@ -460,7 +498,7 @@ export default function PointOfSale() {
             </table>
           </div>
 
-          <div className="border-t border-border bg-background px-6 py-4">
+          <div className="border-t border-border bg-background px-4 sm:px-6 py-3 sm:py-4">
             <Pagination
               page={page}
               limit={pageSize}
@@ -472,7 +510,31 @@ export default function PointOfSale() {
         </div>
 
         {/* ── Cart panel ──────────────────────────────────────────────────── */}
-        <div className="w-96 shrink-0 flex flex-col bg-card">
+        {/* Backdrop for the phone sheet. */}
+        <button
+          type="button"
+          aria-label="Close cart"
+          onClick={() => setCartOpen(false)}
+          className={cn(
+            "md:hidden fixed inset-0 z-40 bg-black/50 transition-opacity",
+            cartOpen ? "opacity-100" : "pointer-events-none opacity-0",
+          )}
+        />
+        <div
+          className={cn(
+            "flex flex-col bg-card",
+            // Desktop: a fixed second column, always visible.
+            "md:static md:w-96 md:shrink-0 md:translate-y-0 md:rounded-none md:h-auto",
+            // Phone: a bottom sheet that slides over the product list.
+            "fixed inset-x-0 bottom-0 z-50 h-[82dvh] rounded-t-2xl shadow-2xl transition-transform duration-250",
+            cartOpen ? "translate-y-0" : "translate-y-full",
+          )}
+        >
+          {/* Grab handle — phone only. */}
+          <div className="md:hidden flex justify-center pt-2.5 pb-1">
+            <span className="h-1 w-10 rounded-full bg-muted-foreground/30" />
+          </div>
+
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2">
@@ -484,14 +546,23 @@ export default function PointOfSale() {
                 </Badge>
               )}
             </div>
-            {cart.length > 0 && (
+            <div className="flex items-center gap-3">
+              {cart.length > 0 && (
+                <button
+                  onClick={clearCart}
+                  className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  Clear all
+                </button>
+              )}
               <button
-                onClick={clearCart}
-                className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                onClick={() => setCartOpen(false)}
+                className="md:hidden text-muted-foreground hover:text-foreground"
+                aria-label="Close cart"
               >
-                Clear all
+                <X className="w-4 h-4" />
               </button>
-            )}
+            </div>
           </div>
 
           {/* Items */}
@@ -723,6 +794,33 @@ export default function PointOfSale() {
           )}
         </div>
       </div>
+
+      {/* Phone-only cart bar. The sheet hides it while open so the two do not
+          stack on top of each other. */}
+      {!cartOpen && (
+        <button
+          type="button"
+          onClick={() => setCartOpen(true)}
+          className="md:hidden sticky bottom-0 z-30 flex items-center justify-between gap-3 border-t border-border bg-card px-4 py-3 text-left"
+        >
+          <span className="flex items-center gap-2">
+            <span className="relative">
+              <ShoppingCart className="w-5 h-5 text-primary" />
+              {totalQty > 0 && (
+                <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                  {totalQty}
+                </span>
+              )}
+            </span>
+            <span className="text-sm font-medium">
+              {cart.length === 0 ? "Cart is empty" : "View cart"}
+            </span>
+          </span>
+          <span className="font-mono text-sm font-semibold tabular-nums">
+            {BDT(total)}
+          </span>
+        </button>
+      )}
 
       <CheckoutModal
         open={checkoutOpen}

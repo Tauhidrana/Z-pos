@@ -58,7 +58,76 @@ export function UrgentTable({
           </p>
         ) : (
           <div className="">
-            <div className="overflow-x-auto">
+            {/* Mobile list — the money columns are the point of this panel and
+                they are the first thing lost to a sideways scroll. */}
+            <div className="space-y-2.5 md:hidden">
+              {displaySales.map((sale) => (
+                <div
+                  key={sale.id}
+                  className={`rounded-lg border border-border p-3.5 ${
+                    sale.status === "DUE" ? "border-l-4 border-l-red-600" : ""
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium leading-tight">
+                        {sale.invoiceNumber}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                        {sale.customerName}
+                      </p>
+                    </div>
+                    <StatusBadgeSales status={sale.status} />
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-3 gap-2 border-t pt-2.5 text-sm">
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Total</p>
+                      <p className="font-medium">
+                        {formatCurrencyInBDT(sale.total)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Paid</p>
+                      <p className="font-medium text-green-600 dark:text-green-400">
+                        {formatCurrencyInBDT(sale.paid)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Due</p>
+                      <p className="font-medium text-red-600 dark:text-red-400">
+                        {formatCurrencyInBDT(sale.due)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onCollectPayment(sale)}
+                      className="flex-1"
+                    >
+                      <CreditCard className="h-3.5 w-3.5 mr-1.5" />
+                      Collect
+                    </Button>
+                    {sale.type === "SALE" && onReturn && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onReturn(sale)}
+                        className="flex-1"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                        Return
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto hidden md:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">

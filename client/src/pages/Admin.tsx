@@ -169,15 +169,15 @@ export default function AdminPage() {
     <div className="min-h-screen bg-background">
       <div className="max-w-7xl mx-auto">
         {/* Header Section */}
-        <div className="border-b border-border bg-linear-to-b from-background via-background to-muted/40 px-6 py-8">
-          <div className="flex items-center justify-between">
+        <div className="border-b border-border bg-linear-to-b from-background via-background to-muted/40 px-4 sm:px-6 py-5 sm:py-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-3">
-              <div className="flex items-center gap-4">
-                <div className="p-3 bg-primary/10 rounded-lg hover-elevate">
+              <div className="flex items-center gap-3 sm:gap-4">
+                <div className="p-2.5 sm:p-3 bg-primary/10 rounded-lg hover-elevate shrink-0">
                   <Users className="w-6 h-6 text-primary" />
                 </div>
                 <div>
-                  <h1 className="text-3xl font-bold text-foreground">
+                  <h1 className="text-2xl sm:text-3xl font-bold text-foreground">
                     Team Management
                   </h1>
                   <p className="text-sm text-muted-foreground mt-1">
@@ -194,7 +194,7 @@ export default function AdminPage() {
                 setRole("STAFF");
                 setInviteOpen(true);
               }}
-              className="gap-2 hover-elevate"
+              className="gap-2 hover-elevate w-full sm:w-auto"
             >
               <UserPlus className="w-4 h-4" />
               Invite Admin
@@ -203,19 +203,19 @@ export default function AdminPage() {
         </div>
 
         {/* Tabs Section */}
-        <div className="px-6 py-8">
-          <Tabs defaultValue="active" className="space-y-6">
-            <TabsList className="bg-muted border border-border">
+        <div className="px-4 sm:px-6 py-5 sm:py-8">
+          <Tabs defaultValue="active" className="space-y-4 sm:space-y-6">
+            <TabsList className="bg-muted border border-border w-full sm:w-auto">
               <TabsTrigger
                 value="active"
-                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                className="flex-1 sm:flex-none data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 <ShieldCheck className="w-4 h-4 mr-2" />
-                Active Admins ({activeUsers.length})
+                Active ({activeUsers.length})
               </TabsTrigger>
               <TabsTrigger
                 value="pending"
-                className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                className="flex-1 sm:flex-none data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 <Mail className="w-4 h-4 mr-2" />
                 Pending ({pendingInvites.length})
@@ -236,7 +236,64 @@ export default function AdminPage() {
 
               <Card className="overflow-hidden border border-border shadow-sm hover-elevate">
                 {filteredUsers.length > 0 ? (
-                  <div className="overflow-x-auto">
+                  <>
+                  {/* Mobile list */}
+                  <div className="divide-y divide-border md:hidden">
+                    {filteredUsers.map((user) => (
+                      <div key={user.id} className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 shrink-0 rounded-full bg-linear-to-br from-primary to-primary/80 flex items-center justify-center text-primary-foreground text-sm font-semibold">
+                            {user.name?.[0]?.toUpperCase() ??
+                              user.email[0].toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-foreground truncate">
+                              {user.name || "Unnamed"}
+                            </p>
+                            <p className="text-xs text-muted-foreground break-all">
+                              {user.email}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant={user.role === "OWNER" ? "default" : "secondary"}
+                            >
+                              {user.role}
+                            </Badge>
+                            <span className="flex items-center gap-1 text-xs font-medium text-chart-1">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Active
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                              onClick={() => handleEditUser(user)}
+                              aria-label={`Edit ${user.email}`}
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => setDeleteConfirm(user.id)}
+                              aria-label={`Remove ${user.email}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="overflow-x-auto hidden md:block">
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-border bg-muted/40">
@@ -327,6 +384,7 @@ export default function AdminPage() {
                       </tbody>
                     </table>
                   </div>
+                  </>
                 ) : (
                   <div className="px-6 py-12 text-center">
                     <Users className="w-12 h-12 text-muted/50 mx-auto mb-3" />
@@ -354,7 +412,55 @@ export default function AdminPage() {
 
               <Card className="overflow-hidden border border-border shadow-sm hover-elevate">
                 {filteredInvites.length > 0 ? (
-                  <div className="overflow-x-auto">
+                  <>
+                  {/* Mobile list */}
+                  <div className="divide-y divide-border md:hidden">
+                    {filteredInvites.map((invite) => (
+                      <div key={invite.id} className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground break-all">
+                              {invite.email}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Invited{" "}
+                              {new Date(invite.created_at).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "2-digit",
+                                year: "numeric",
+                              })}
+                            </p>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => setCancelInviteConfirm(invite.id)}
+                            aria-label={`Cancel invitation for ${invite.email}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+
+                        <div className="mt-3 flex items-center gap-2 border-t pt-2.5">
+                          <Badge variant="secondary">{invite.role}</Badge>
+                          {invite.status === "PENDING" ? (
+                            <span className="flex items-center gap-1 text-xs font-medium text-chart-3">
+                              <AlertCircle className="w-3.5 h-3.5" />
+                              Pending
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-xs font-medium text-destructive">
+                              <XCircle className="w-3.5 h-3.5" />
+                              Cancelled
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="overflow-x-auto hidden md:block">
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-border bg-muted/40">
@@ -438,6 +544,7 @@ export default function AdminPage() {
                       </tbody>
                     </table>
                   </div>
+                  </>
                 ) : (
                   <div className="px-6 py-12 text-center">
                     <Mail className="w-12 h-12 text-muted/50 mx-auto mb-3" />

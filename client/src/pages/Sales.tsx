@@ -38,6 +38,13 @@ const OrderStatusChart = lazy(() =>
 );
 import { SalesHistoryTable } from "@/components/sales/SaleHistoryTable";
 import { SaleDetailModal } from "@/components/sales/SaleDetailModal";
+// Lazy: this dialog pulls in the checkout form and (on demand) the ZXing
+// decoder, none of which the Sales page itself needs to paint.
+const NewSaleScanModal = lazy(() =>
+  import("@/components/sales/NewSaleScanModal").then((m) => ({
+    default: m.NewSaleScanModal,
+  })),
+);
 import CollectPaymentModal from "@/components/sales/CollectPaymentModal";
 // import { DeleteConfirmationModal } from "@/components/sales/DeleteConformationModal";
 import { useGetData, useListData, usePostData } from "@/lib/api-request";
@@ -77,6 +84,7 @@ export default function SalesPage() {
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isNewSaleOpen, setIsNewSaleOpen] = useState(false);
   // const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   // State for history filters
@@ -265,7 +273,7 @@ export default function SalesPage() {
   // }, [deleteMutation]);
 
   return (
-    <div className="space-y-6 flex-1 p-6 lg:p-8 bg-background">
+    <div className="space-y-5 sm:space-y-6 flex-1 p-4 sm:p-6 lg:p-8 bg-background">
       {/* Top Bar */}
       <TopBar
         onDateRangeChange={handleDateRangeChange}
@@ -273,14 +281,29 @@ export default function SalesPage() {
         currentRange={dateFilter.range}
         customFrom={dateFilter.customFrom}
         customTo={dateFilter.customTo}
+        onNewSale={() => setIsNewSaleOpen(true)}
       />
+
+      {isNewSaleOpen && (
+        <Suspense fallback={null}>
+          <NewSaleScanModal
+            open={isNewSaleOpen}
+            onClose={() => setIsNewSaleOpen(false)}
+            onCreated={() => {
+              refetchHistory();
+              refetchUrgent();
+              refetchStats();
+            }}
+          />
+        </Suspense>
+      )}
 
       {/* Stats Row */}
       {/* <StatCards metrics={metrics} isLoading={false} /> */}
       <StatCards metrics={stats} isLoading={statsFetching} />
 
       {/* Middle Row (2 columns) */}
-      <div className="grid gap-6 md:grid-cols-1 lg:grid-cols-3">
+      <div className="grid gap-4 sm:gap-6 md:grid-cols-1 lg:grid-cols-3">
         {/* Urgent Table */}
         <div className="col-span-1 lg:col-span-3">
           <UrgentTable

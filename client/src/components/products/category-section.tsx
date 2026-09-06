@@ -110,11 +110,11 @@ function CategorySection({
     );
 
   return (
-    <section className="border-t pt-8">
+    <section className="border-t pt-6 sm:pt-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5 sm:mb-6">
         <div>
-          <h2 className="text-2xl font-bold">Categories</h2>
+          <h2 className="text-xl sm:text-2xl font-bold">Categories</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
             Manage product categories and subcategories
           </p>
@@ -129,35 +129,41 @@ function CategorySection({
       </div>
 
       {/* Category Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-3 gap-2.5 sm:gap-3 mb-5 sm:mb-6">
         <Card className="border border-border">
-          <CardContent className="p-4">
-            <p className="text-2xl font-bold">{categories.length}</p>
-            <p className="text-xs text-muted-foreground">Root Categories</p>
+          <CardContent className="p-3 sm:p-4">
+            <p className="text-xl sm:text-2xl font-bold">{categories.length}</p>
+            <p className="text-[11px] sm:text-xs text-muted-foreground leading-tight">
+              Root Categories
+            </p>
           </CardContent>
         </Card>
         <Card className="border border-border">
-          <CardContent className="p-4">
-            <p className="text-2xl font-bold">{getCategoryStats()}</p>
-            <p className="text-xs text-muted-foreground">Total Categories</p>
+          <CardContent className="p-3 sm:p-4">
+            <p className="text-xl sm:text-2xl font-bold">{getCategoryStats()}</p>
+            <p className="text-[11px] sm:text-xs text-muted-foreground leading-tight">
+              Total Categories
+            </p>
           </CardContent>
         </Card>
         <Card className="border border-border">
-          <CardContent className="p-4">
-            <p className="text-2xl font-bold">
+          <CardContent className="p-3 sm:p-4">
+            <p className="text-xl sm:text-2xl font-bold">
               {categories.reduce(
                 (acc, c) => acc + (c.children?.length || 0),
                 0,
               )}
             </p>
-            <p className="text-xs text-muted-foreground">Subcategories</p>
+            <p className="text-[11px] sm:text-xs text-muted-foreground leading-tight">
+              Subcategories
+            </p>
           </CardContent>
         </Card>
       </div>
 
       {/* Categories List */}
       <Card className="border border-border">
-        <CardHeader className="border-b border-border flex flex-row items-center justify-between">
+        <CardHeader className="border-b border-border flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="text-lg">Category Hierarchy</CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
@@ -166,8 +172,9 @@ function CategorySection({
               your product catalog
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 shrink-0">
             <Button
+              className="flex-1 sm:flex-none"
               variant="outline"
               size="sm"
               onClick={() => {
@@ -177,6 +184,7 @@ function CategorySection({
               Expand All
             </Button>
             <Button
+              className="flex-1 sm:flex-none"
               variant="outline"
               size="sm"
               onClick={() => {
@@ -187,7 +195,7 @@ function CategorySection({
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="p-6">
+        <CardContent className="p-3 sm:p-6">
           {categories.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground">
               <Package className="w-10 h-10 mx-auto mb-2 opacity-30" />

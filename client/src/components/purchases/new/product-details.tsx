@@ -66,6 +66,26 @@ function toNumber(v: string | number | undefined): number {
   return isNaN(n) ? 0 : n;
 }
 
+/**
+ * Shared by the desktop table row and the phone card so both accept exactly the
+ * same keystrokes.
+ */
+function applyDecimalChange(
+    onUpdate: (updates: Partial<PurchaseRowDraft>) => void,
+    field: "quantity" | "unitCost" | "sellingPrice",
+    raw: string,
+) {
+    // Reject anything that doesn't look like a decimal in progress
+    if (raw !== "" && !/^\d*\.?\d*$/.test(raw)) return;
+    const sanitised = raw === "" ? "" : sanitiseDecimal(raw);
+    // Explicit assignment — never use a computed key here, it bypasses
+    // PurchaseRowDraft typing and the spread in updateRow writes to the wrong
+    // property name silently.
+    if (field === "quantity") onUpdate({ quantity: sanitised });
+    else if (field === "unitCost") onUpdate({ unitCost: sanitised });
+    else if (field === "sellingPrice") onUpdate({ sellingPrice: sanitised });
+}
+
 // ─── Sub-component: single row ────────────────────────────────────────────────
 
 interface RowProps {
@@ -90,19 +110,10 @@ function PurchaseItemRow({
   const isIncomplete =
     !row.variantId || !row.quantity || !row.unitCost || !row.sellingPrice;
 
-  function handleDecimalChange(
+  const handleDecimalChange = (
     field: "quantity" | "unitCost" | "sellingPrice",
     raw: string,
-  ) {
-    // Reject anything that doesn't look like a decimal in progress
-    if (raw !== "" && !/^\d*\.?\d*$/.test(raw)) return;
-    const sanitised = raw === "" ? "" : sanitiseDecimal(raw);
-    // Explicit assignment — never use a computed key here, it bypasses PurchaseRowDraft typing
-    // and the spread in updateRow writes to the wrong property name silently.
-    if (field === "quantity") onUpdate({ quantity: sanitised });
-    else if (field === "unitCost") onUpdate({ unitCost: sanitised });
-    else if (field === "sellingPrice") onUpdate({ sellingPrice: sanitised });
-  }
+  ) => applyDecimalChange(onUpdate, field, raw);
 
   return (
     <TableRow
@@ -209,6 +220,123 @@ function PurchaseItemRow({
   );
 }
 
+/**
+ * Phone layout for one purchase line.
+ *
+ * The desktop table is seven columns wide and cannot be typed into on a phone
+ * without scrolling sideways between the quantity and the price it belongs to.
+ */
+function PurchaseItemCard({
+  row,
+  availableItems,
+  onUpdate,
+  onRemove,
+  index,
+}: RowProps) {
+  const quantity = toNumber(row.quantity);
+  const unitCost = toNumber(row.unitCost);
+  const rowTotal = quantity * unitCost;
+  const isIncomplete =
+    !row.variantId || !row.quantity || !row.unitCost || !row.sellingPrice;
+
+  const change = (field: "quantity" | "unitCost" | "sellingPrice", raw: string) =>
+    applyDecimalChange(onUpdate, field, raw);
+
+  return (
+    <div
+      className={`rounded-lg border p-3.5 ${
+        isIncomplete && row.variantId
+          ? "border-amber-300 bg-amber-50/40 dark:bg-amber-950/10"
+          : "border-border"
+      }`}
+    >
+      <div className="mb-2.5 flex items-center justify-between gap-2">
+        <span className="text-xs font-mono text-muted-foreground">
+          Item {index + 1}
+        </span>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+          onClick={onRemove}
+          aria-label="Remove row"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <Select
+        value={row.variantId ?? ""}
+        onValueChange={(v) => onUpdate({ variantId: v })}
+      >
+        <SelectTrigger className="w-full" aria-label="Select product">
+          <SelectValue placeholder="Select product…" />
+        </SelectTrigger>
+        <SelectContent>
+          {availableItems.length === 0 ? (
+            <div className="px-3 py-4 text-sm text-center text-muted-foreground">
+              All products already added
+            </div>
+          ) : (
+            availableItems.map((item) => (
+              <SelectItem key={item.id} value={item.id}>
+                <span className="font-medium">{item.name}</span>
+                <Badge variant="outline" className="ml-2 text-xs">
+                  {item.category.name}
+                </Badge>
+              </SelectItem>
+            ))
+          )}
+        </SelectContent>
+      </Select>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <div>
+          <label className="text-[11px] text-muted-foreground">Qty</label>
+          <Input
+            inputMode="decimal"
+            placeholder="0"
+            value={String(row.quantity ?? "")}
+            disabled={!row.variantId}
+            aria-label="Quantity"
+            onChange={(e) => change("quantity", e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="text-[11px] text-muted-foreground">Cost ৳</label>
+          <Input
+            inputMode="decimal"
+            placeholder="0.00"
+            value={String(row.unitCost ?? "")}
+            disabled={!row.variantId}
+            aria-label="Unit cost"
+            onChange={(e) => change("unitCost", e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="text-[11px] text-muted-foreground">Sell ৳</label>
+          <Input
+            inputMode="decimal"
+            placeholder="0.00"
+            value={String(row.sellingPrice ?? "")}
+            disabled={!row.variantId}
+            aria-label="Selling price"
+            onChange={(e) => change("sellingPrice", e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between border-t pt-2.5 text-sm">
+        <span className="text-muted-foreground">Line total</span>
+        <span className="font-semibold tabular-nums">
+          {rowTotal > 0 ? formatCurrencyInBDT(rowTotal) : "—"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function PurchaseItemsSection({
@@ -253,7 +381,7 @@ export default function PurchaseItemsSection({
   return (
     <Card className="space-y-0">
       <CardHeader className="pb-3">
-        <div className="flex justify-between items-center gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center sm:gap-4">
           <div>
             <CardTitle>Purchase Items</CardTitle>
             <CardDescription className="mt-1">
@@ -273,7 +401,7 @@ export default function PurchaseItemsSection({
                   ? "Select a product for the current row first"
                   : undefined
             }
-            className="shrink-0 gap-1.5"
+            className="shrink-0 gap-1.5 w-full sm:w-auto"
           >
             <PackagePlus className="h-4 w-4" />
             Add Item
@@ -293,7 +421,50 @@ export default function PurchaseItemsSection({
         )}
       </CardHeader>
 
-      <CardContent className="pb-4 overflow-x-auto">
+      {/* Phone layout — one card per line, so quantity and price stay in view
+          together. The table below takes over from md up. */}
+      <CardContent className="pb-4 space-y-2.5 md:hidden">
+        {value.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
+            <PackagePlus className="h-8 w-8 opacity-30" />
+            <span>No items added yet.</span>
+            <span className="text-xs">
+              Click &ldquo;Add Item&rdquo; to get started.
+            </span>
+          </div>
+        ) : (
+          <>
+            {value.map((row, index) => {
+              const otherSelectedIds = new Set(
+                value
+                  .filter((r) => r.tempId !== row.tempId && r.variantId)
+                  .map((r) => r.variantId as string),
+              );
+              return (
+                <PurchaseItemCard
+                  key={row.tempId}
+                  row={row}
+                  index={index}
+                  availableItems={itemsList.filter(
+                    (item) => !otherSelectedIds.has(item.id),
+                  )}
+                  onUpdate={(updates) => updateRow(row.tempId, updates)}
+                  onRemove={() => removeRow(row.tempId)}
+                />
+              );
+            })}
+
+            <div className="flex items-center justify-between border-t-2 border-border pt-3">
+              <span className="text-sm font-semibold">Grand Total</span>
+              <span className="font-bold tabular-nums">
+                {formatCurrencyInBDT(grandTotal)}
+              </span>
+            </div>
+          </>
+        )}
+      </CardContent>
+
+      <CardContent className="pb-4 overflow-x-auto hidden md:block">
         <Table className="min-w-[780px]">
           <TableHeader>
             <TableRow>

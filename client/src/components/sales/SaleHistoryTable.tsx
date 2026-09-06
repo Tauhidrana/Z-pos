@@ -42,6 +42,7 @@ export function SalesHistoryTable({
   onSearchChange,
   onPageChange,
   onStatusChange,
+  onView,
   // onExport,
   // onDelete,
   currentSearch,
@@ -54,7 +55,7 @@ export function SalesHistoryTable({
       <CardHeader>
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-lg font-semibold">
+            <CardTitle className="text-base sm:text-lg font-semibold">
               Sales History
             </CardTitle>
             {/* <Button
@@ -70,8 +71,8 @@ export function SalesHistoryTable({
           </div>
 
           {/* Filters */}
-          <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="col-span-3">
+          <div className="grid gap-3 grid-cols-1 lg:grid-cols-4">
+            <div className="lg:col-span-3">
               <Input
                 placeholder="Search by customer or invoice..."
                 value={currentSearch || ""}
@@ -114,7 +115,58 @@ export function SalesHistoryTable({
           </p>
         ) : (
           <div className="space-y-4">
-            <div className="overflow-x-auto">
+            {/* Mobile list — eight columns of currency cannot be read on a
+                phone. Tapping a card opens the same detail view. */}
+            <div className="space-y-2.5 md:hidden">
+              {displaySales.map((sale) => (
+                <button
+                  key={sale.id}
+                  type="button"
+                  onClick={() => onView(sale)}
+                  className="w-full rounded-lg border border-border p-3.5 text-left transition-colors hover:bg-muted/50"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium leading-tight">
+                        {sale.invoiceNumber}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                        {sale.customerName} ·{" "}
+                        {formatDate(new Date(sale.date), "MMM dd, yyyy")}
+                      </p>
+                    </div>
+                    <StatusBadgeSales status={sale.status} />
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-4 gap-2 border-t pt-2.5 text-sm">
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Items</p>
+                      <p className="font-medium">{sale.items}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Total</p>
+                      <p className="font-medium">
+                        {formatCurrencyInBDT(sale.total)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Paid</p>
+                      <p className="font-medium text-green-600 dark:text-green-400">
+                        {formatCurrencyInBDT(sale.paid)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">Due</p>
+                      <p className="font-medium text-red-600 dark:text-red-400">
+                        {formatCurrencyInBDT(sale.due)}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto hidden md:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border">
@@ -145,7 +197,8 @@ export function SalesHistoryTable({
                   {displaySales.map((sale) => (
                     <tr
                       key={sale.id}
-                      className="border-b border-border hover:bg-muted/50 transition-colors"
+                      onClick={() => onView(sale)}
+                      className="border-b border-border hover:bg-muted/50 transition-colors cursor-pointer"
                     >
                       <td className="py-3 px-3 font-medium">
                         {sale.invoiceNumber}

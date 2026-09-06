@@ -10,6 +10,7 @@ interface TopBarProps {
   currentRange: TimeLine;
   customFrom?: Date;
   customTo?: Date;
+  onNewSale: () => void;
 }
 
 export function TopBar({
@@ -18,6 +19,7 @@ export function TopBar({
   currentRange,
   customFrom,
   customTo,
+  onNewSale,
 }: TopBarProps) {
   const [showCustom, setShowCustom] = useState(currentRange === "CUSTOM");
 
@@ -35,9 +37,9 @@ export function TopBar({
   ];
 
   return (
-    <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       {/* Title */}
-      <h1 className="text-3xl font-bold">Sales</h1>
+      <h1 className="text-2xl sm:text-3xl font-bold">Sales</h1>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         {/* Range Selector */}
@@ -46,7 +48,7 @@ export function TopBar({
             <button
               key={range.value}
               onClick={() => handleRangeChange(range.value)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition
+              className={`flex-1 sm:flex-none px-3 py-2 sm:py-1.5 text-xs font-medium rounded-md transition
                 ${
                   currentRange === range.value
                     ? "bg-background text-foreground shadow-sm"
@@ -91,7 +93,12 @@ export function TopBar({
       </div>
 
       {/* CTA */}
-      <Button className="bg-primary hover:bg-primary/90">+ New Sale</Button>
+      <Button
+        onClick={onNewSale}
+        className="bg-primary hover:bg-primary/90 w-full sm:w-auto"
+      >
+        + New Sale
+      </Button>
     </div>
   );
 }

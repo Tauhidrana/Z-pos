@@ -18,7 +18,51 @@ export default function PurchaseHistory({
   return (
     <div>
       {purchases.length > 0 ? (
-        <div className="border border-border rounded-lg overflow-hidden">
+        <>
+        {/* Mobile list — the six-column table can only scroll sideways here. */}
+        <div className="space-y-2.5 md:hidden">
+          {isFetching && purchases.length === 0
+            ? Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="rounded-lg border border-border p-4 space-y-2">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-3 w-1/3" />
+                </div>
+              ))
+            : purchases.map((p) => (
+                <div key={p.id} className="rounded-lg border border-border p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium leading-tight break-words">
+                        {p.supplier}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {new Date(p.date).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "2-digit",
+                        })}
+                        {" · "}
+                        {p.invoiceNo || "No invoice"}
+                      </p>
+                    </div>
+                    <DeleteItemModal
+                      isPending={isDeletePending}
+                      handleDelete={handleDelete}
+                      id={p.id}
+                    />
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-between border-t pt-2.5 text-sm">
+                    <span className="text-muted-foreground">
+                      Items <span className="font-medium text-foreground">{p.items}</span>
+                    </span>
+                    <span className="font-bold">{formatCurrencyInBDT(p.total)}</span>
+                  </div>
+                </div>
+              ))}
+        </div>
+
+        <div className="border border-border rounded-lg overflow-hidden hidden md:block">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -104,6 +148,7 @@ export default function PurchaseHistory({
             </table>
           </div>
         </div>
+        </>
       ) : (
         <div className="flex flex-col items-center justify-center py-16 border border-dashed rounded-lg">
           <TrendingDown className="w-10 h-10 opacity-40 mb-3" />
