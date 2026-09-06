@@ -13,7 +13,10 @@ export const AdminController = {
     // GET /api/admin — list all users
     async getAll(c: Context<AppEnv>) {
         const users = await prisma.user.findMany({
-            where: { status: InviteStatus.ACCEPTED },
+            where: {
+                shop_id: c.get("shopId"),
+                status: InviteStatus.ACCEPTED,
+            },
             select: {
                 id: true,
                 name: true,
@@ -53,6 +56,9 @@ export const AdminController = {
                 role,
                 status: InviteStatus.PENDING,
                 is_active: true,
+                // The invitee joins the inviter's shop — that shared catalog is
+                // the entire point of inviting them.
+                shop_id: c.get("shopId"),
             }
         });
 
@@ -74,7 +80,9 @@ export const AdminController = {
     // PATCH /api/admin/:id — update role or active status
     async update(c: Context<AppEnv>) {
         const body = c.get("validatedBody") as UpdateInput;
-        const user = await prisma.user.findUnique({ where: { id: body.id } });
+        const user = await prisma.user.findFirst({
+            where: { id: body.id, shop_id: c.get("shopId") },
+        });
         if (!user) {
             return sendError(c, "User not found", "NOT_FOUND", 404);
         }
@@ -103,7 +111,9 @@ export const AdminController = {
             return sendError(c, "You cannot deactivate yourself", "FORBIDDEN", 403);
         }
 
-        const user = await prisma.user.findUnique({ where: { id } });
+        const user = await prisma.user.findFirst({
+            where: { id, shop_id: c.get("shopId") },
+        });
         if (!user) {
             return sendError(c, "User not found", "NOT_FOUND", 404);
         }
@@ -124,7 +134,9 @@ export const AdminController = {
     async cancelInvite(c: Context<AppEnv>) {
         const { id } = c.get("validatedBody") as IdBody;
 
-        const user = await prisma.user.findUnique({ where: { id } });
+        const user = await prisma.user.findFirst({
+            where: { id, shop_id: c.get("shopId") },
+        });
 
         if (!user) {
             return sendError(c, "User not found", "NOT_FOUND", 404);
@@ -145,7 +157,10 @@ export const AdminController = {
     },
     async getInvites(c: Context<AppEnv>) {
         const invites = await prisma.user.findMany({
-            where: { status: InviteStatus.PENDING },
+            where: {
+                shop_id: c.get("shopId"),
+                status: InviteStatus.PENDING,
+            },
             select: {
                 id: true,
                 email: true,
@@ -161,7 +176,13 @@ export const AdminController = {
     },
     async getDeactivatedUsers(c: Context<AppEnv>) {
         const users = await prisma.user.findMany({
-            where: { AND: [{ is_active: false }, { status: InviteStatus.ACCEPTED }] },
+            where: {
+                AND: [
+                    { shop_id: c.get("shopId") },
+                    { is_active: false },
+                    { status: InviteStatus.ACCEPTED },
+                ],
+            },
             select: {
                 id: true,
                 email: true,

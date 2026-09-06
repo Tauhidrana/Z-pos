@@ -82,6 +82,7 @@ export async function syncUser(c: Context<AppEnv>, next: Next) {
         if (cached) {
             c.set("userId", cached.userId);
             c.set("userRole", cached.role);
+            c.set("shopId", cached.shopId);
             return next();
         }
 
@@ -89,7 +90,7 @@ export async function syncUser(c: Context<AppEnv>, next: Next) {
         //       No Clerk API call — clerk_id is the join key. ────────────────
         let user = await prisma.user.findUnique({
             where: { clerk_id: clerkUserId },
-            select: { id: true, role: true, is_active: true },
+            select: { id: true, role: true, is_active: true, shop_id: true },
         });
 
         // ── 3. Cold path: first sign-in for this Clerk account. We only need
@@ -114,11 +115,11 @@ export async function syncUser(c: Context<AppEnv>, next: Next) {
             const invited =
                 (await prisma.user.findUnique({
                     where: { email },
-                    select: { id: true, role: true, is_active: true, status: true },
+                    select: { id: true, role: true, is_active: true, status: true, shop_id: true },
                 })) ??
                 (await prisma.user.findFirst({
                     where: { email: { equals: email, mode: "insensitive" } },
-                    select: { id: true, role: true, is_active: true, status: true },
+                    select: { id: true, role: true, is_active: true, status: true, shop_id: true },
                 }));
 
             // Not in DB = not invited = blocked, unless the environment has
@@ -141,8 +142,11 @@ export async function syncUser(c: Context<AppEnv>, next: Next) {
                         role: "OWNER",
                         status: "ACCEPTED",
                         is_active: true,
+                        // A bootstrap owner is a new business, so it gets its
+                        // own empty shop — never someone else's books.
+                        shop: { create: { name: "My Shop" } },
                     },
-                    select: { id: true, role: true, is_active: true },
+                    select: { id: true, role: true, is_active: true, shop_id: true },
                 });
 
                 console.warn(
@@ -150,9 +154,14 @@ export async function syncUser(c: Context<AppEnv>, next: Next) {
                 );
 
                 lastProfileSync.set(created.id, Date.now());
-                setCachedSession(clerkUserId, { userId: created.id, role: created.role });
+                setCachedSession(clerkUserId, {
+                    userId: created.id,
+                    role: created.role,
+                    shopId: created.shop_id!,
+                });
                 c.set("userId", created.id);
                 c.set("userRole", created.role);
+                c.set("shopId", created.shop_id!);
                 return next();
             }
 
@@ -168,7 +177,12 @@ export async function syncUser(c: Context<AppEnv>, next: Next) {
             });
 
             lastProfileSync.set(invited.id, Date.now());
-            user = { id: invited.id, role: invited.role, is_active: invited.is_active };
+            user = {
+                id: invited.id,
+                role: invited.role,
+                is_active: invited.is_active,
+                shop_id: invited.shop_id,
+            };
         } else {
             refreshProfileInBackground(user.id, clerkUserId);
         }
@@ -184,10 +198,33 @@ export async function syncUser(c: Context<AppEnv>, next: Next) {
             );
         }
 
-        setCachedSession(clerkUserId, { userId: user.id, role: user.role });
+        // An OWNER with no shop predates tenancy (or had theirs deleted); give
+        // them their own rather than leaving them unable to use the app. STAFF
+        // are never auto-provisioned a shop — they belong to the one that
+        // invited them, and inventing a second empty shop would silently hide
+        // the catalog they are meant to be selling from.
+        let shopId = user.shop_id;
+        if (!shopId) {
+            if (user.role !== "OWNER") {
+                return sendError(
+                    c,
+                    "Your account is not attached to a shop. Ask the shop owner to re-send your invite.",
+                    "FORBIDDEN",
+                    403,
+                );
+            }
+            const shop = await prisma.shop.create({
+                data: { name: "My Shop", users: { connect: { id: user.id } } },
+                select: { id: true },
+            });
+            shopId = shop.id;
+        }
+
+        setCachedSession(clerkUserId, { userId: user.id, role: user.role, shopId });
 
         c.set("userId", user.id);
         c.set("userRole", user.role);
+        c.set("shopId", shopId);
 
         await next();
     } catch (err) {

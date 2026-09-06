@@ -22,6 +22,9 @@ export function createTestApp(role: 'OWNER' | 'STAFF' = 'OWNER') {
         c.set('clerkUserId', 'clerk_test_user_id')
         c.set('userId', 'test-user-uuid')
         c.set('userRole', role)
+        // Every handler now scopes its queries by the shop on the context, so
+        // the stub has to supply one or each test hits an empty tenant.
+        c.set('shopId', 'test-shop-uuid')
         await next()
     })
 

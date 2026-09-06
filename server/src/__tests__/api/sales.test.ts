@@ -60,7 +60,7 @@ describe('POST /api/sales/payment/create', () => {
     })
 
     it('returns 422 for invalid payment method', async () => {
-        mockPrisma.sale.findUnique.mockResolvedValueOnce({
+        mockPrisma.sale.findFirst.mockResolvedValueOnce({
             id: 'sale-1',
             invoice_number: 'INV-2026-000001',
             total: new Decimal(100),
@@ -77,7 +77,7 @@ describe('POST /api/sales/payment/create', () => {
     })
 
     it('returns 404 when sale does not exist', async () => {
-        mockPrisma.sale.findUnique.mockResolvedValueOnce(null)
+        mockPrisma.sale.findFirst.mockResolvedValueOnce(null)
 
         const res = await post(app, '/api/sales/payment/create', {
             saleId: 'nonexistent-sale',
@@ -89,7 +89,7 @@ describe('POST /api/sales/payment/create', () => {
 
     it('returns 422 when payment would exceed total', async () => {
         mockPrisma.$queryRaw.mockResolvedValueOnce([{ id: 'sale-1' }])
-        mockPrisma.sale.findUnique.mockResolvedValueOnce({
+        mockPrisma.sale.findFirst.mockResolvedValueOnce({
             id: 'sale-1',
             invoice_number: 'INV-2026-000001',
             total: new Decimal(100),
@@ -110,7 +110,7 @@ describe('POST /api/sales/payment/create', () => {
 
     it('creates payment and does NOT update sale discount (bug fix verification)', async () => {
         mockPrisma.$queryRaw.mockResolvedValueOnce([{ id: 'sale-1' }])
-        mockPrisma.sale.findUnique.mockResolvedValueOnce({
+        mockPrisma.sale.findFirst.mockResolvedValueOnce({
             id: 'sale-1',
             invoice_number: 'INV-2026-000001',
             total: new Decimal(100),
@@ -141,7 +141,7 @@ describe('POST /api/sales/payment/create', () => {
 
     it('passes correct args to payment.create', async () => {
         mockPrisma.$queryRaw.mockResolvedValueOnce([{ id: 'sale-abc' }])
-        mockPrisma.sale.findUnique.mockResolvedValueOnce({
+        mockPrisma.sale.findFirst.mockResolvedValueOnce({
             id: 'sale-abc',
             invoice_number: 'INV-2026-000001',
             total: new Decimal(200),

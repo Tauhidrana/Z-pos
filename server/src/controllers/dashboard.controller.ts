@@ -228,6 +228,7 @@ const TOP_PRODUCTS_LIMIT = 5;
 
 export const DashboardController = {
   async getDashboardStats(c: Context) {
+    const shopId = c.get("shopId") as string;
     const { start: todayStart, end: todayEnd } = getDayBounds(0);
 
     const rows = await prisma.$queryRaw<DayStatsRow[]>`
@@ -239,7 +240,8 @@ export const DashboardController = {
             COALESCE(AVG(total), 0)              AS aov
           FROM sales
           WHERE
-            status NOT IN ('VOID')
+            shop_id = ${shopId}
+            AND status NOT IN ('VOID')
             AND created_at >= ${todayStart}
             AND created_at <= ${todayEnd}
         )
@@ -263,6 +265,7 @@ export const DashboardController = {
   },
 
   async getDashboardStatTrend(c: Context) {
+    const shopId = c.get("shopId") as string;
 
     const { start: todayStart, end: todayEnd } = getDayBounds(0);
     const { start: yestStart, end: yestEnd } = getDayBounds(1);
@@ -280,7 +283,8 @@ export const DashboardController = {
             END AS day_bucket
           FROM sales
           WHERE
-            status NOT IN ('VOID')
+            shop_id = ${shopId}
+            AND status NOT IN ('VOID')
             AND created_at >= ${yestStart}
             AND created_at <= ${todayEnd}
         )
@@ -330,6 +334,7 @@ export const DashboardController = {
 
   },
   async getDashboardCategoryGraph(c: Context) {
+    const shopId = c.get("shopId") as string;
 
     const timeline = c.req.query("timeline") ?? "7d";
     const bounds = getTimelineBounds(timeline);
@@ -361,7 +366,7 @@ export const DashboardController = {
       id   AS root_id,
       name AS root_name
     FROM categories
-    WHERE parent_id IS NULL
+    WHERE parent_id IS NULL AND shop_id = ${shopId}
 
     UNION ALL
 
@@ -383,7 +388,8 @@ export const DashboardController = {
     JOIN   product_variants pv  ON pv.id = si.variant_id
     JOIN   products         p   ON p.id  = pv.product_id
     JOIN   category_roots   cr  ON cr.id = p.category_id
-    WHERE  s.status NOT IN ('VOID')
+    WHERE  s.shop_id = ${shopId}
+      AND  s.status NOT IN ('VOID')
       AND  s.created_at >= ${start}
       AND  s.created_at <= ${end}
   ),
@@ -455,6 +461,7 @@ export const DashboardController = {
    * Days with no sales are zero-filled — frontend always gets 7 entries.
    */
   async getDashboardWeeklySalesGraph(c: Context) {
+    const shopId = c.get("shopId") as string;
 
     const { weekStart, weekEnd } = getCurrentWeekBounds();
 
@@ -465,7 +472,8 @@ export const DashboardController = {
     COUNT(s.id)                 AS orders
   FROM sales s
   WHERE
-    s.status NOT IN ('VOID')
+    s.shop_id = ${shopId}
+    AND s.status NOT IN ('VOID')
     AND s.created_at >= ${weekStart}
     AND s.created_at <= ${weekEnd}
   GROUP BY s.created_at::date
@@ -531,6 +539,7 @@ export const DashboardController = {
 * For "today", trend compares today vs yesterday.
 */
   async getDashboardTopProducts(c: Context) {
+    const shopId = c.get("shopId") as string;
 
     const timeline = c.req.query("timeline") ?? "7d";
     const limitParam = parseInt(c.req.query("limit") ?? String(TOP_PRODUCTS_LIMIT));
@@ -572,7 +581,8 @@ export const DashboardController = {
           JOIN   sales            s   ON s.id  = si.sale_id
           JOIN   product_variants pv  ON pv.id = si.variant_id
           JOIN   products         p   ON p.id  = pv.product_id
-          WHERE  s.status NOT IN ('VOID')
+          WHERE  s.shop_id = ${shopId}
+            AND  s.status NOT IN ('VOID')
             AND  s.created_at >= ${start}
             AND  s.created_at <= ${end}
           GROUP BY p.id, p.name
@@ -585,7 +595,8 @@ export const DashboardController = {
           JOIN   sales            s   ON s.id  = si.sale_id
           JOIN   product_variants pv  ON pv.id = si.variant_id
           JOIN   products         p   ON p.id  = pv.product_id
-          WHERE  s.status NOT IN ('VOID')
+          WHERE  s.shop_id = ${shopId}
+            AND  s.status NOT IN ('VOID')
             AND  s.created_at >= ${prevStart}
             AND  s.created_at <= ${prevEnd}
           GROUP BY p.id
@@ -643,6 +654,7 @@ export const DashboardController = {
  * dominant payment method. VOID sales are always excluded.
  */
   async getDashboardSalesHistory(c: Context) {
+    const shopId = c.get("shopId") as string;
     const timeline = c.req.query("timeline") ?? "7d";
     const pageParam = parseInt(c.req.query("page") ?? "1");
     const limitParam = parseInt(c.req.query("limit") ?? String(PAGE_SIZE));
@@ -696,7 +708,8 @@ export const DashboardController = {
           LEFT JOIN customers c  ON c.id = s.customer_id
           LEFT JOIN payment_agg pa ON pa.sale_id = s.id
           WHERE
-            s.status != 'VOID'
+            s.shop_id = ${shopId}
+            AND s.status != 'VOID'
             AND s.created_at >= ${start}
             AND s.created_at <= ${end}
         )

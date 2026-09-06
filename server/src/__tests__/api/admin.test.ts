@@ -37,7 +37,7 @@ describe('POST /api/admin/invite', () => {
     })
 
     it('still returns 201 even when the invite email fails to send', async () => {
-        mockPrisma.user.findUnique
+        mockPrisma.user.findFirst
             .mockResolvedValueOnce(null)
             .mockResolvedValueOnce({ name: 'Alice Owner', email: 'alice@example.com' })
         mockResend.emails.send.mockResolvedValueOnce({ data: null, error: { message: 'Resend is down' } as any })
@@ -51,14 +51,14 @@ describe('POST /api/admin/invite', () => {
 
 describe('PATCH /api/admin (update)', () => {
     it('returns 404 when the user does not exist', async () => {
-        mockPrisma.user.findUnique.mockResolvedValueOnce(null)
+        mockPrisma.user.findFirst.mockResolvedValueOnce(null)
 
         const res = await patch(app, '/api/admin', { id: USER_ID, role: 'OWNER' })
         expect(res.status).toBe(404)
     })
 
     it('updates role and persists it', async () => {
-        mockPrisma.user.findUnique.mockResolvedValueOnce({ id: USER_ID, role: 'STAFF' })
+        mockPrisma.user.findFirst.mockResolvedValueOnce({ id: USER_ID, role: 'STAFF' })
 
         const res = await patch(app, '/api/admin', { id: USER_ID, role: 'OWNER' })
         expect(res.status).toBe(200)
@@ -74,14 +74,14 @@ describe('DELETE /api/admin/invites (cancelInvite)', () => {
     })
 
     it('returns 400 when the invite is already accepted', async () => {
-        mockPrisma.user.findUnique.mockResolvedValueOnce({ id: USER_ID, status: 'ACCEPTED' })
+        mockPrisma.user.findFirst.mockResolvedValueOnce({ id: USER_ID, status: 'ACCEPTED' })
 
         const res = await del(app, '/api/admin/invites', { id: USER_ID })
         expect(res.status).toBe(400)
     })
 
     it('cancels a pending invite', async () => {
-        mockPrisma.user.findUnique.mockResolvedValueOnce({ id: USER_ID, status: 'PENDING' })
+        mockPrisma.user.findFirst.mockResolvedValueOnce({ id: USER_ID, status: 'PENDING' })
 
         const res = await del(app, '/api/admin/invites', { id: USER_ID })
         expect(res.status).toBe(200)
@@ -97,14 +97,14 @@ describe('DELETE /api/admin/:id (remove/deactivate)', () => {
     })
 
     it('refuses to deactivate a user who is still PENDING', async () => {
-        mockPrisma.user.findUnique.mockResolvedValueOnce({ id: USER_ID, status: 'PENDING' })
+        mockPrisma.user.findFirst.mockResolvedValueOnce({ id: USER_ID, status: 'PENDING' })
 
         const res = await del(app, '/api/admin/' + USER_ID)
         expect(res.status).toBe(400)
     })
 
     it('deactivates an accepted user', async () => {
-        mockPrisma.user.findUnique.mockResolvedValueOnce({ id: USER_ID, status: 'ACCEPTED' })
+        mockPrisma.user.findFirst.mockResolvedValueOnce({ id: USER_ID, status: 'ACCEPTED' })
 
         const res = await del(app, '/api/admin/' + USER_ID)
         expect(res.status).toBe(200)

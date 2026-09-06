@@ -104,7 +104,7 @@ describe('PUT /api/customers/update', () => {
 
     it('returns 200 on valid update', async () => {
         // update schema requires id to be a valid UUID
-        mockPrisma.customer.findUnique.mockResolvedValueOnce(MOCK_CUSTOMER)
+        mockPrisma.customer.findFirst.mockResolvedValueOnce(MOCK_CUSTOMER)
         mockPrisma.customer.update.mockResolvedValueOnce({
             ...MOCK_CUSTOMER,
             name: 'Updated Name',
@@ -126,7 +126,7 @@ describe('PATCH /api/customers/toggle-status', () => {
     })
 
     it('returns 200 on valid toggle', async () => {
-        mockPrisma.customer.findUnique.mockResolvedValueOnce(MOCK_CUSTOMER)
+        mockPrisma.customer.findFirst.mockResolvedValueOnce(MOCK_CUSTOMER)
         mockPrisma.customer.update.mockResolvedValueOnce({
             ...MOCK_CUSTOMER,
             is_active: false,

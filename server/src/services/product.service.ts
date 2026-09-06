@@ -3,10 +3,12 @@ import { normalizeProductName } from "@/lib/product-name-normalizer";
 import type { CreateProduct } from "@myapp/shared/schemas/product.schema";
 import type { PrismaTx, ProductRow, ProductStatus, ProductTableRow } from "@/types";
 import { Prisma } from "generated/prisma";
+import { AppError } from "@/utils/AppError";
 
 export const ProductService = {
     async getAll(
         tx: PrismaTx,
+        shopId: string,
         page = 1,
         pageSize = 20,
         search: string = "",
@@ -68,7 +70,7 @@ export const ProductService = {
             FROM products p
             INNER JOIN categories c ON c.id = p.category_id
             LEFT JOIN  product_stock ps ON ps.product_id = p.id
-            WHERE p.is_active = true
+            WHERE p.is_active = true AND p.shop_id = ${shopId}
         )
         SELECT
             id,
@@ -102,30 +104,39 @@ export const ProductService = {
             })),
         };
     },
-    async getById(tx: PrismaTx, id: string) {
-        return tx.product.findUnique({
-            where: { id },
+    async getById(tx: PrismaTx, id: string, shopId: string) {
+        return tx.product.findFirst({
+            where: { id, shop_id: shopId },
             include: {
                 variants: true,
             },
         });
     },
-    async create(data: CreateProduct) {
+    async create(data: CreateProduct, shopId: string) {
         const normalized = normalizeProductName(data.name);
 
         const result = await prisma.$transaction(async (tx) => {
+            // The category must belong to the same shop, or a caller could
+            // attach their product to someone else's category by id.
+            const category = await tx.category.findFirst({
+                where: { id: data.category_id, shop_id: shopId },
+                select: { id: true },
+            });
+            if (!category) {
+                throw new AppError("Category not found", "INVALID_INPUT", 400);
+            }
+
             const product = await tx.product.create({
                 data: {
+                    shop_id: shopId,
                     name: data.name,
                     description: data.description,
                     normalized_key: normalized,
                     reorder_level: data.reorder_level,
                     brand: data.brand,
-                    category: {
-                        connect: {
-                            id: data.category_id,
-                        },
-                    }
+                    // Plain id rather than `category: { connect }`: Prisma
+                    // rejects mixing a scalar FK with a nested connect.
+                    category_id: data.category_id,
                 },
                 include: {
                     category: {
@@ -150,11 +161,7 @@ export const ProductService = {
 
                     return tx.productVariant.create({
                         data: {
-                            product: {
-                                connect: {
-                                    id: product.id,
-                                },
-                            },
+                            product_id: product.id,
                             name,
                             color,
                             size,
@@ -168,15 +175,15 @@ export const ProductService = {
         });
         return result;
     },
-    async update(tx: PrismaTx, id: string, data: any) {
-        return tx.product.update({
-            where: { id },
+    async update(tx: PrismaTx, id: string, shopId: string, data: any) {
+        return tx.product.updateMany({
+            where: { id, shop_id: shopId },
             data,
         });
     },
-    async deleteById(tx: PrismaTx, id: string) {
-        return tx.product.delete({
-            where: { id },
+    async deleteById(tx: PrismaTx, id: string, shopId: string) {
+        return tx.product.deleteMany({
+            where: { id, shop_id: shopId },
         });
     },
 }

@@ -7,9 +7,12 @@ import { AppError } from "@/utils/AppError";
 export const categoryController = {
     async createCategory(c: Context) {
         const { name, description, parent_id } = c.get("validatedBody") as CategoryFormValues;
+        const shopId = c.get("shopId") as string;
 
+        // Scoped to the shop: another shop owning this name must not block it.
         const existingCategory = await prisma.category.findFirst({
             where: {
+                shop_id: shopId,
                 name: {
                     equals: name,
                     mode: "insensitive",
@@ -22,10 +25,10 @@ export const categoryController = {
         }
 
         if (parent_id) {
-            const parentCategory = await prisma.category.findUnique({
-                where: {
-                    id: parent_id,
-                },
+            // findFirst, not findUnique: the id alone would happily resolve a
+            // parent belonging to another shop and graft this category onto it.
+            const parentCategory = await prisma.category.findFirst({
+                where: { id: parent_id, shop_id: shopId },
             });
 
             if (!parentCategory) {
@@ -37,6 +40,7 @@ export const categoryController = {
 
         await prisma.category.create({
             data: {
+                shop_id: shopId,
                 name,
                 description,
                 slug: name.toLowerCase().replace(/\s+/g, "-"),
@@ -49,6 +53,7 @@ export const categoryController = {
     async getCategories(c: Context) {
         const categories = await prisma.category.findMany({
             where: {
+                shop_id: c.get("shopId") as string,
                 parent_id: null
             },
             select: {
@@ -77,11 +82,10 @@ export const categoryController = {
     async updateCategory(c: Context) {
         const body = c.get("validatedBody") as UpdateCategory;
         const { id, name, description } = body;
+        const shopId = c.get("shopId") as string;
 
-        const category = await prisma.category.findUnique({
-            where: {
-                id
-            }
+        const category = await prisma.category.findFirst({
+            where: { id, shop_id: shopId },
         });
 
         if (!category) {
@@ -89,9 +93,7 @@ export const categoryController = {
         }
 
         await prisma.category.update({
-            where: {
-                id
-            },
+            where: { id },
             data: {
                 name,
                 description,
@@ -106,8 +108,8 @@ export const categoryController = {
             return sendError(c, "Invalid ID", "BAD_REQUEST", 400);
         }
 
-        const category = await prisma.category.findUnique({
-            where: { id },
+        const category = await prisma.category.findFirst({
+            where: { id, shop_id: c.get("shopId") as string },
             include: {
                 children: true,
             }

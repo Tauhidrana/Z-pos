@@ -23,14 +23,17 @@ export const PurchaseController = {
         const { date, invoiceNo, supplier, email, note, phone, products: variants } =
             c.get("validatedBody") as NewPurchase;
         const userId = c.get("userId");
+        const shopId = c.get("shopId") as string;
 
         let formattedResult: BarcodePrintData[] = [];
         await prisma.$transaction(async (tx) => {
             // 1. Validate all variant IDs exist
             const variantIds = variants.map((p) => p.variantId);
 
+            // Constrained to this shop, so a variant id belonging to someone
+            // else is reported missing rather than silently stocked here.
             const foundVariants = await tx.productVariant.findMany({
-                where: { id: { in: variantIds } },
+                where: { id: { in: variantIds }, product: { shop_id: shopId } },
                 select: { id: true },
             });
 
@@ -41,10 +44,11 @@ export const PurchaseController = {
             }
 
             // 2. Upsert supplier
+            // Suppliers are per shop now, so the phone lookup is a composite.
             const supplierData = await tx.supplier.upsert({
-                where: { phone },
+                where: { shop_id_phone: { shop_id: shopId, phone } },
                 update: {},
-                create: { name: supplier, phone, email },
+                create: { shop_id: shopId, name: supplier, phone, email },
             });
 
             // 3. Calculate total
@@ -60,6 +64,7 @@ export const PurchaseController = {
                     note,
                     invoice_no: invoiceNo,
                     total,
+                    shop_id: shopId,
                     supplier_id: supplierData.id,
                     user_id: userId,
                 },
@@ -199,16 +204,19 @@ export const PurchaseController = {
         return sendSuccess(c, { barcodeData: formattedResult }, "Purchase created successfully");
     },
     async getOverviewStats(c: Context) {
+        const shopId = c.get("shopId") as string;
+
         // 1. Aggregate base purchase metrics
         const [aggregate, supplierCount, completedCount] = await Promise.all([
             prisma.purchase.aggregate({
-                where: {},
+                where: { shop_id: shopId },
                 _count: { id: true },
                 _sum: { total: true },
             }),
 
             prisma.purchase.findMany({
                 where: {
+                    shop_id: shopId,
                     supplier_id: { not: null },
                 },
                 select: { supplier_id: true },
@@ -217,6 +225,7 @@ export const PurchaseController = {
 
             prisma.purchase.count({
                 where: {
+                    shop_id: shopId,
                     items: {
                         some: {},
                     },
@@ -271,6 +280,7 @@ export const PurchaseController = {
         }
 
         const where: Prisma.PurchaseWhereInput = {
+            shop_id: c.get("shopId") as string,
             ...(dateFrom && { date: { gte: dateFrom } }),
             ...(search && {
                 OR: [
@@ -320,8 +330,8 @@ export const PurchaseController = {
         if (!id || typeof id !== "string" || id.trim() === "") {
             return sendError(c, "Purchase ID is required", "BAD_REQUEST", 400);
         }
-        const purchase = await prisma.purchase.findUnique({
-            where: { id },
+        const purchase = await prisma.purchase.findFirst({
+            where: { id, shop_id: c.get("shopId") as string },
             include: { items: { select: { variant_id: true } } },
         });
         if (!purchase) return sendError(c, "Purchase not found", "BAD_REQUEST", 404);

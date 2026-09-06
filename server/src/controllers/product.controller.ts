@@ -26,7 +26,14 @@ export const ProductController = {
             );
         }
 
-        const products = await ProductService.getAll(prisma, page, limit, search, status);
+        const products = await ProductService.getAll(
+            prisma,
+            c.get("shopId") as string,
+            page,
+            limit,
+            search,
+            status,
+        );
 
         return sendSuccess(
             c,
@@ -45,9 +52,10 @@ export const ProductController = {
     async getById(c: Context) {
         const id = c.req.param("id") ?? "";
 
-        const product = await prisma.product.findUnique({
+        const product = await prisma.product.findFirst({
             where: {
-                id: id
+                id,
+                shop_id: c.get("shopId") as string,
             },
             include: {
                 category: true,
@@ -83,16 +91,20 @@ export const ProductController = {
     },
     async create(c: Context) {
         const body = c.get("validatedBody") as CreateProduct;
-        const product = await ProductService.create(body)
+        const product = await ProductService.create(body, c.get("shopId") as string)
 
         return sendSuccess(c, product, "Product created successfully", 201);
     },
     async update(c: Context) {
         const body = c.get("validatedBody") as UpdateProduct;
         const { id, name, description, reorder_level, category, brand } = body;
+        const shopId = c.get("shopId") as string;
 
-        await prisma.product.update({
-            where: { id },
+        // updateMany, not update: it takes a filter rather than a unique id, so
+        // the shop check and the write are one statement and a product from
+        // another shop simply matches nothing.
+        const updated = await prisma.product.updateMany({
+            where: { id, shop_id: shopId },
             data: {
                 ...(name && {
                     name,
@@ -105,13 +117,17 @@ export const ProductController = {
             },
         });
 
+        if (updated.count === 0) {
+            return sendError(c, "Product not found", "NOT_FOUND", 404);
+        }
+
         return sendSuccess(c, {}, "Product updated successfully", 200);
     },
     async deleteById(c: Context) {
         const { id } = c.get("validatedBody") as IdBody;
 
-        const product = await prisma.product.findUnique({
-            where: { id },
+        const product = await prisma.product.findFirst({
+            where: { id, shop_id: c.get("shopId") as string },
             include: { variants: { select: { id: true } } },
         });
 
@@ -171,7 +187,10 @@ export const ProductController = {
         // include — this used to hydrate every column of every variant, product
         // and category row in the database on each page load.
         const productVariants = await prisma.productVariant.findMany({
-            where: { is_active: true, product: { is_active: true } },
+            where: {
+                is_active: true,
+                product: { is_active: true, shop_id: c.get("shopId") as string },
+            },
             select: {
                 id: true,
                 name: true,
@@ -211,7 +230,14 @@ export const ProductController = {
         }
 
         const allocation = await prisma.variantBarcodeAllocation.findFirst({
-            where: { barcode_id: barcodeData.id },
+            where: {
+                barcode_id: barcodeData.id,
+                // Barcode codes stay globally unique — they are physical labels
+                // — so the tenant boundary is enforced on the product behind it.
+                // Without this, scanning another shop's label would sell their
+                // stock from this till.
+                variant: { product: { shop_id: c.get("shopId") as string } },
+            },
             include: {
                 purchaseItem: { select: { sell_price: true } },
                 variant: {
@@ -252,7 +278,11 @@ export const ProductController = {
 
         const allocation = await prisma.variantBarcodeAllocation.findFirst({
             where: {
-                variant: { product_id: productId, is_active: true },
+                variant: {
+                    product_id: productId,
+                    is_active: true,
+                    product: { shop_id: c.get("shopId") as string },
+                },
                 barcode: { status: BarcodeStatus.ALLOCATED },
             },
             include: {
@@ -291,6 +321,7 @@ export const ProductController = {
 
         const allocation = await prisma.variantBarcodeAllocation.findFirst({
             where: {
+                variant: { product: { shop_id: c.get("shopId") as string } },
                 variant_id: variantId,
                 barcode: { status: BarcodeStatus.ALLOCATED },
             },
@@ -334,8 +365,8 @@ export const ProductController = {
             return sendError(c, "Color or size is required", "BAD_REQUEST", 400);
         }
 
-        const variant = await prisma.productVariant.findUnique({
-            where: { id },
+        const variant = await prisma.productVariant.findFirst({
+            where: { id, product: { shop_id: c.get("shopId") as string } },
         });
 
         if (!variant) {
@@ -358,8 +389,8 @@ export const ProductController = {
     async toggleVariantById(c: Context) {
         const { id } = c.get("validatedBody") as IdBody;
 
-        const variant = await prisma.productVariant.findUnique({
-            where: { id },
+        const variant = await prisma.productVariant.findFirst({
+            where: { id, product: { shop_id: c.get("shopId") as string } },
         });
 
         if (!variant) {
@@ -387,8 +418,8 @@ export const ProductController = {
             return sendError(c, "Invalid ID", "BAD_REQUEST", 400);
         }
 
-        const variant = await prisma.productVariant.findUnique({
-            where: { id },
+        const variant = await prisma.productVariant.findFirst({
+            where: { id, product: { shop_id: c.get("shopId") as string } },
         });
 
         if (!variant) {
@@ -408,8 +439,8 @@ export const ProductController = {
         const body = c.get("validatedBody") as CreateProductVariantSepa;
         const { productId, color, size } = body;
 
-        const product = await prisma.product.findUnique({
-            where: { id: productId },
+        const product = await prisma.product.findFirst({
+            where: { id: productId, shop_id: c.get("shopId") as string },
             include: {
                 variants: true
             }
@@ -449,7 +480,7 @@ export const ProductController = {
             FROM products p
             LEFT JOIN product_variants pv
                    ON pv.product_id = p.id AND pv.is_active = true
-            WHERE p.is_active = true
+            WHERE p.is_active = true AND p.shop_id = ${c.get("shopId") as string}
             GROUP BY p.id
         )
         SELECT

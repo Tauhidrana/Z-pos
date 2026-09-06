@@ -56,7 +56,7 @@ describe('GET /api/products/get/all', () => {
 
 describe('GET /api/products/get/:id', () => {
     it('returns 200 when product exists', async () => {
-        mockPrisma.product.findUnique.mockResolvedValueOnce(MOCK_PRODUCT)
+        mockPrisma.product.findFirst.mockResolvedValueOnce(MOCK_PRODUCT)
 
         const res = await get(app, '/api/products/get/prod-uuid-1')
         expect(res.status).toBe(200)
@@ -68,7 +68,7 @@ describe('GET /api/products/get/:id', () => {
     })
 
     it('returns 404 when product does not exist', async () => {
-        mockPrisma.product.findUnique.mockResolvedValueOnce(null)
+        mockPrisma.product.findFirst.mockResolvedValueOnce(null)
 
         const res = await get(app, '/api/products/get/nonexistent-id')
         expect(res.status).toBe(404)
@@ -158,6 +158,12 @@ describe('POST /api/products/create', () => {
         mockPrisma.$transaction.mockImplementationOnce(async (fn: any) =>
             fn({
                 ...mockPrisma,
+                // Creating a product now verifies the category belongs to the
+                // caller's shop first, so the transaction stub has to resolve it.
+                category: {
+                    ...mockPrisma.category,
+                    findFirst: () => Promise.resolve({ id: 'cat-1' }),
+                },
                 product: {
                     ...mockPrisma.product,
                     create: () => Promise.resolve({ id: 'new-prod', name: 'Rice' }),
@@ -235,14 +241,14 @@ describe('DELETE /api/products/delete', () => {
     })
 
     it('returns 404 when product does not exist', async () => {
-        mockPrisma.product.findUnique.mockResolvedValueOnce(null)
+        mockPrisma.product.findFirst.mockResolvedValueOnce(null)
 
         const res = await del(app, '/api/products/delete', { id: VALID_UUID })
         expect(res.status).toBe(404)
     })
 
     it('hard-deletes a product with no purchase/sale/stock history', async () => {
-        mockPrisma.product.findUnique.mockResolvedValueOnce(MOCK_PRODUCT)
+        mockPrisma.product.findFirst.mockResolvedValueOnce(MOCK_PRODUCT)
         mockPrisma.stockLedger.count.mockResolvedValueOnce(0)
         mockPrisma.saleItem.count.mockResolvedValueOnce(0)
         mockPrisma.purchaseItem.count.mockResolvedValueOnce(0)
@@ -256,7 +262,7 @@ describe('DELETE /api/products/delete', () => {
     })
 
     it('deactivates instead of deleting a product with sale history', async () => {
-        mockPrisma.product.findUnique.mockResolvedValueOnce(MOCK_PRODUCT)
+        mockPrisma.product.findFirst.mockResolvedValueOnce(MOCK_PRODUCT)
         mockPrisma.stockLedger.count.mockResolvedValueOnce(0)
         mockPrisma.saleItem.count.mockResolvedValueOnce(3) // has been sold
         mockPrisma.purchaseItem.count.mockResolvedValueOnce(0)

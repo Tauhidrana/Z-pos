@@ -19,6 +19,8 @@
 export type CachedSession = {
     userId: string;
     role: "OWNER" | "STAFF";
+    /** Tenant the session is confined to; cached so it costs no extra query. */
+    shopId: string;
 };
 
 type Entry = CachedSession & { expiresAt: number };
@@ -45,7 +47,7 @@ export function getCachedSession(clerkUserId: string): CachedSession | null {
     byClerkId.delete(clerkUserId);
     byClerkId.set(clerkUserId, entry);
 
-    return { userId: entry.userId, role: entry.role };
+    return { userId: entry.userId, role: entry.role, shopId: entry.shopId };
 }
 
 export function setCachedSession(clerkUserId: string, session: CachedSession): void {

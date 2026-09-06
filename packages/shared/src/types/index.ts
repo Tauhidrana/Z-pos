@@ -2,6 +2,12 @@ export type AppVariables = {
     clerkUserId: string;
     userId: string;
     userRole: string;
+    /**
+     * The tenant every request is confined to. Resolved once in `syncUser`;
+     * a session without one is rejected there, so handlers can rely on it
+     * being present and must filter every query by it.
+     */
+    shopId: string;
     validatedBody: unknown;
 };
 

@@ -15,6 +15,7 @@ export const customerController = {
         const skip = (page - 1) * limit;
 
         const where = {
+            shop_id: c.get("shopId") as string,
             ...(searchQ && {
                 OR: [
                     { name: { contains: searchQ, mode: "insensitive" as const } },
@@ -86,21 +87,23 @@ export const customerController = {
     },
     getCustomerStats: async (c: Context) => {
         const FREQUENT_THRESHOLD = 3;
+        const shopId = c.get("shopId") as string;
 
         const [totalCustomers, activeCustomers, frequentCustomerIds] =
             await Promise.all([
                 // total
-                prisma.customer.count(),
+                prisma.customer.count({ where: { shop_id: shopId } }),
 
                 // active
                 prisma.customer.count({
-                    where: { is_active: true },
+                    where: { shop_id: shopId, is_active: true },
                 }),
 
                 // frequent: customers with 3+ sales
                 prisma.sale.groupBy({
                     by: ["customer_id"],
                     where: {
+                        shop_id: shopId,
                         customer_id: { not: null },
                     },
                     having: {
@@ -123,11 +126,13 @@ export const customerController = {
     },
     createCustomer: async (c: Context) => {
         const body = c.get("validatedBody") as CreateCustomer
+        const shopId = c.get("shopId") as string;
         const { name, email, phone, address } = body;
 
         const result = await prisma.$transaction(async (tx) => {
             const existingCustomer = await tx.customer.findFirst({
                 where: {
+                    shop_id: shopId,
                     OR: [
                         { phone: { equals: phone } },
                     ],
@@ -140,6 +145,7 @@ export const customerController = {
 
             return await tx.customer.create({
                 data: {
+                    shop_id: shopId,
                     name,
                     email,
                     phone,
@@ -155,11 +161,12 @@ export const customerController = {
     },
     updateCustomer: async (c: Context) => {
         const { id, name, email, phone, address } = c.get("validatedBody") as UpdateCustomer;
+        const shopId = c.get("shopId") as string;
 
         const result = await prisma.$transaction(async (tx) => {
             // Check the customer being updated actually exists
-            const customer = await tx.customer.findUnique({
-                where: { id },
+            const customer = await tx.customer.findFirst({
+                where: { id, shop_id: shopId },
             });
 
             if (!customer) {
@@ -167,9 +174,11 @@ export const customerController = {
             }
 
             // Check if the new phone is already taken by a DIFFERENT customer
+            // in this shop. Numbers may repeat freely across shops.
             if (phone !== customer.phone) {
                 const phoneConflict = await tx.customer.findFirst({
                     where: {
+                        shop_id: shopId,
                         phone,
                         NOT: { id }, // exclude self
                     },
@@ -193,10 +202,11 @@ export const customerController = {
     },
     toggleCustomerStatus: async (c: Context) => {
         const { id } = c.get("validatedBody") as IdBody;
+        const shopId = c.get("shopId") as string;
 
         const result = await prisma.$transaction(async (tx) => {
-            const customer = await tx.customer.findUnique({
-                where: { id },
+            const customer = await tx.customer.findFirst({
+                where: { id, shop_id: shopId },
             });
 
             if (!customer) {
@@ -215,10 +225,11 @@ export const customerController = {
     },
     deleteCustomer: async (c: Context) => {
         const body: { id: string } = await c.req.json();
+        const shopId = c.get("shopId") as string;
 
         const result = await prisma.$transaction(async (tx) => {
-            const customer = await tx.customer.findUnique({
-                where: { id: body.id },
+            const customer = await tx.customer.findFirst({
+                where: { id: body.id, shop_id: shopId },
             });
 
             if (!customer) {

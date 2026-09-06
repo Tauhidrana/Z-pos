@@ -59,9 +59,46 @@ enum InviteStatus {
 // Users
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenancy
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One retail business. Everything a shop owns — catalog, customers, suppliers,
+/// sales, purchases — hangs off this, and every query is filtered by it.
+///
+/// Before this existed the whole database was a single shared dataset: any
+/// signed-in account saw every other account's products and could edit them,
+/// because nothing recorded who anything belonged to.
+///
+/// The boundary is the shop, not the user: an OWNER's invited STAFF work the
+/// same catalog, which is the point of the invite flow. Two owners never see
+/// each other's data.
+model Shop {
+  id   String @id @default(uuid())
+  name String
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  users            User[]
+  categories       Category[]
+  products         Product[]
+  customers        Customer[]
+  suppliers        Supplier[]
+  sales            Sale[]
+  purchases        Purchase[]
+  stockAdjustments StockAdjustment[]
+  counters         Counter[]
+
+  @@map("shops")
+}
+
 model User {
   id       String  @id @default(uuid())
   clerk_id String? @unique
+  /// Nullable only so an invite row can exist before its shop is resolved;
+  /// every admitted session is required to have one.
+  shop_id  String?
   name     String?
   email    String  @unique
   phone    String? @unique
@@ -72,6 +109,7 @@ model User {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
+  shop              Shop?     @relation(fields: [shop_id], references: [id], onDelete: SetNull)
   sales             Sale[]
   purchases         Purchase[]
   stockAdjustments  StockAdjustment[]
@@ -80,6 +118,7 @@ model User {
 
   @@index([email])
   @@index([clerk_id])
+  @@index([shop_id])
   @@map("users")
 }
 
@@ -89,8 +128,11 @@ model User {
 
 model Customer {
   id             String  @id @default(uuid())
+  shop_id        String
   name           String  @default("Walk-in Customer")
-  phone          String? @unique
+  /// Unique per shop, not globally: two shops may each have a customer on the
+  /// same number, and a global unique would let one shop's data block another's.
+  phone          String?
   email          String?
   address        String?
   credit_balance Decimal @default(0) @db.Decimal(10, 2)
@@ -99,8 +141,11 @@ model Customer {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
+  shop  Shop   @relation(fields: [shop_id], references: [id], onDelete: Cascade)
   sales Sale[]
 
+  @@unique([shop_id, phone])
+  @@index([shop_id])
   @@index([phone])
   @@index([email])
   @@map("customers")
@@ -112,8 +157,9 @@ model Customer {
 
 model Category {
   id          String  @id @default(uuid())
-  name        String  @unique
-  slug        String  @unique
+  shop_id     String
+  name        String
+  slug        String
   description String?
   parent_id   String?
   is_active   Boolean @default(true)
@@ -121,16 +167,21 @@ model Category {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
+  shop     Shop       @relation(fields: [shop_id], references: [id], onDelete: Cascade)
   parent   Category?  @relation("CategoryHierarchy", fields: [parent_id], references: [id], onDelete: SetNull)
   children Category[] @relation("CategoryHierarchy")
   products Product[]
 
+  @@unique([shop_id, name])
+  @@unique([shop_id, slug])
+  @@index([shop_id])
   @@index([parent_id])
   @@map("categories")
 }
 
 model Product {
   id              String  @id @default(uuid())
+  shop_id         String
   name            String
   normalized_key  String // lowercased+stripped for duplicate detection
   description     String?
@@ -142,11 +193,13 @@ model Product {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
+  shop     Shop             @relation(fields: [shop_id], references: [id], onDelete: Cascade)
   category Category         @relation(fields: [category_id], references: [id], onDelete: Restrict)
   variants ProductVariant[]
 
+  @@index([shop_id])
   @@index([category_id])
-  @@index([normalized_key])
+  @@index([shop_id, normalized_key])
   @@map("products")
 }
 
@@ -237,21 +290,27 @@ model VariantBarcodeAllocation {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Supplier {
-  id    String  @id @default(uuid())
-  name  String
-  phone String? @unique
-  email String? @unique
+  id      String  @id @default(uuid())
+  shop_id String
+  name    String
+  phone   String?
+  email   String?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
+  shop      Shop       @relation(fields: [shop_id], references: [id], onDelete: Cascade)
   purchases Purchase[]
 
+  @@unique([shop_id, phone])
+  @@unique([shop_id, email])
+  @@index([shop_id])
   @@map("suppliers")
 }
 
 model Purchase {
   id          String  @id @default(uuid())
+  shop_id     String
   supplier_id String?
   user_id     String
 
@@ -262,12 +321,15 @@ model Purchase {
   date       DateTime
   created_at DateTime @default(now())
 
+  shop     Shop      @relation(fields: [shop_id], references: [id], onDelete: Cascade)
   supplier Supplier? @relation(fields: [supplier_id], references: [id], onDelete: SetNull)
   user     User      @relation(fields: [user_id], references: [id], onDelete: Restrict)
 
   items        PurchaseItem[]
   stockLedgers StockLedger[]
 
+  @@index([shop_id])
+  @@index([shop_id, date])
   @@index([supplier_id])
   @@index([user_id])
   @@index([invoice_no])
@@ -302,9 +364,13 @@ model PurchaseItem {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model Counter {
-  key   String @id // e.g. "invoice"
-  value Int
+  shop_id String
+  key     String // e.g. "invoice"
+  value   Int
 
+  shop Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+
+  @@id([shop_id, key])
   @@map("counters")
 }
 
@@ -314,9 +380,12 @@ model Counter {
 
 model Sale {
   id             String     @id @default(uuid())
+  shop_id        String
   user_id        String
   customer_id    String?
-  invoice_number String     @unique
+  /// Numbered from a per-shop counter, so it is unique within a shop rather
+  /// than globally — two shops both starting at INV-1001 is correct.
+  invoice_number String
   invoiced_at    DateTime
   status         SaleStatus @default(COMPLETED)
 
@@ -331,6 +400,7 @@ model Sale {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
+  shop     Shop      @relation(fields: [shop_id], references: [id], onDelete: Cascade)
   user     User      @relation(fields: [user_id], references: [id], onDelete: Restrict)
   customer Customer? @relation(fields: [customer_id], references: [id], onDelete: SetNull)
 
@@ -338,6 +408,10 @@ model Sale {
   payments     Payment[]
   stockLedgers StockLedger[]
 
+  @@unique([shop_id, invoice_number])
+  @@index([shop_id])
+  @@index([shop_id, invoiced_at])
+  @@index([shop_id, status, created_at])
   @@index([user_id])
   @@index([customer_id])
   @@index([invoiced_at])
@@ -438,17 +512,20 @@ model StockLedger {
 
 model StockAdjustment {
   id          String  @id @default(uuid())
+  shop_id     String
   adjusted_by String
   reason      String?
   note        String?
 
   created_at DateTime @default(now())
 
+  shop           Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
   adjustedByUser User @relation(fields: [adjusted_by], references: [id], onDelete: Restrict)
 
   items        StockAdjustmentItem[]
   stockLedgers StockLedger[]
 
+  @@index([shop_id])
   @@index([adjusted_by])
   @@map("stock_adjustments")
 }

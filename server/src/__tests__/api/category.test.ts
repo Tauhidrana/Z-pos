@@ -28,7 +28,7 @@ describe('POST /api/categories/create', () => {
 
     it('returns 400 when parent_id does not resolve to a real category', async () => {
         mockPrisma.category.findFirst.mockResolvedValueOnce(null)
-        mockPrisma.category.findUnique.mockResolvedValueOnce(null)
+        mockPrisma.category.findFirst.mockResolvedValueOnce(null)
 
         const res = await post(app, '/api/categories/create', {
             name: 'Sub Snacks',
@@ -59,7 +59,7 @@ describe('POST /api/categories/create', () => {
 
 describe('PATCH /api/categories/update', () => {
     it('returns 404 when category does not exist', async () => {
-        mockPrisma.category.findUnique.mockResolvedValueOnce(null)
+        mockPrisma.category.findFirst.mockResolvedValueOnce(null)
 
         const res = await patch(app, '/api/categories/update', {
             id: CATEGORY_ID,
@@ -69,7 +69,7 @@ describe('PATCH /api/categories/update', () => {
     })
 
     it('updates an existing category', async () => {
-        mockPrisma.category.findUnique.mockResolvedValueOnce({ id: CATEGORY_ID, name: 'Old Name' })
+        mockPrisma.category.findFirst.mockResolvedValueOnce({ id: CATEGORY_ID, name: 'Old Name' })
 
         const res = await patch(app, '/api/categories/update', {
             id: CATEGORY_ID,
@@ -82,14 +82,14 @@ describe('PATCH /api/categories/update', () => {
 
 describe('DELETE /api/categories/delete', () => {
     it('returns 404 when category does not exist', async () => {
-        mockPrisma.category.findUnique.mockResolvedValueOnce(null)
+        mockPrisma.category.findFirst.mockResolvedValueOnce(null)
 
         const res = await del(app, '/api/categories/delete', { id: CATEGORY_ID })
         expect(res.status).toBe(404)
     })
 
     it('returns 400 (not a generic 500) when the category has products linked', async () => {
-        mockPrisma.category.findUnique.mockResolvedValueOnce({ id: CATEGORY_ID, children: [] })
+        mockPrisma.category.findFirst.mockResolvedValueOnce({ id: CATEGORY_ID, children: [] })
         mockPrisma.product.findMany.mockResolvedValueOnce([{ id: 'prod-1' }])
 
         const res = await del(app, '/api/categories/delete', { id: CATEGORY_ID })
@@ -100,7 +100,7 @@ describe('DELETE /api/categories/delete', () => {
     })
 
     it('deletes the category and its children when no products are linked', async () => {
-        mockPrisma.category.findUnique.mockResolvedValueOnce({
+        mockPrisma.category.findFirst.mockResolvedValueOnce({
             id: CATEGORY_ID,
             children: [{ id: 'child-1' }],
         })

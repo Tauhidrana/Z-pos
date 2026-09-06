@@ -91,14 +91,14 @@ describe('DELETE /api/purchase/delete', () => {
     })
 
     it('returns 404 when purchase does not exist', async () => {
-        mockPrisma.purchase.findUnique.mockResolvedValueOnce(null)
+        mockPrisma.purchase.findFirst.mockResolvedValueOnce(null)
 
         const res = await del(app, '/api/purchase/delete', { id: PURCHASE_ID })
         expect(res.status).toBe(404)
     })
 
     it('blocks deletion when a variant from this purchase has already been sold', async () => {
-        mockPrisma.purchase.findUnique.mockResolvedValueOnce({
+        mockPrisma.purchase.findFirst.mockResolvedValueOnce({
             id: PURCHASE_ID,
             items: [{ variant_id: VARIANT_ID }],
         })
@@ -112,7 +112,7 @@ describe('DELETE /api/purchase/delete', () => {
     })
 
     it('deletes a purchase with no sale history', async () => {
-        mockPrisma.purchase.findUnique.mockResolvedValueOnce({
+        mockPrisma.purchase.findFirst.mockResolvedValueOnce({
             id: PURCHASE_ID,
             items: [{ variant_id: VARIANT_ID }],
         })

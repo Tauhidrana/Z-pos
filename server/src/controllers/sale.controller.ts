@@ -153,6 +153,7 @@ function buildHavingClause(filterKey: FilterKey): Prisma.Sql {
 }
 
 function buildSalesQuery(params: {
+    shopId: string;
     fromDate: Date;
     toDate: Date;
     filterKey: FilterKey;
@@ -160,7 +161,7 @@ function buildSalesQuery(params: {
     limitNum: number;
     offset: number;
 }): Prisma.Sql {
-    const { fromDate, toDate, filterKey, search, limitNum, offset } = params;
+    const { shopId, fromDate, toDate, filterKey, search, limitNum, offset } = params;
 
     const havingClause = buildHavingClause(filterKey);
     const searchClause = buildSearchClause(search);
@@ -193,7 +194,8 @@ function buildSalesQuery(params: {
             FROM sales s
             LEFT JOIN payments p ON p.sale_id = s.id
             WHERE
-                s.invoiced_at >= ${fromDate}
+                s.shop_id = ${shopId}
+                AND s.invoiced_at >= ${fromDate}
                 AND s.invoiced_at <= ${toDate}
             GROUP BY
                 s.id, s.invoice_number, s.invoiced_at, s.created_at,
@@ -241,6 +243,7 @@ export const SaleController = {
     async createSale(c: Context) {
         const body = c.get("validatedBody") as SalePayload;
         const userId = c.get("userId") as string;
+        const shopId = c.get("shopId") as string;
 
         const { checkout } = body;
 
@@ -264,7 +267,10 @@ export const SaleController = {
 
         // ── 2. Resolve allocations ─────────────────────────────────────────────
         const allocations = await prisma.variantBarcodeAllocation.findMany({
-            where: { barcode_id: { in: barcodeIds } },
+            where: {
+                barcode_id: { in: barcodeIds },
+                variant: { product: { shop_id: shopId } },
+            },
             select: {
                 barcode_id: true,
                 variant_id: true,
@@ -350,13 +356,16 @@ export const SaleController = {
 
         // ── 5. Customer upsert — outside transaction ───────────────────────────
         const customerRecord = await prisma.customer.upsert({
-            where: { phone: checkout.customer.phone },
+            where: {
+                shop_id_phone: { shop_id: shopId, phone: checkout.customer.phone },
+            },
             update: {
                 name: checkout.customer.name,
                 address: checkout.customer.address || undefined,
                 email: checkout.customer.email || undefined,
             },
             create: {
+                shop_id: shopId,
                 name: checkout.customer.name,
                 phone: checkout.customer.phone,
                 address: checkout.customer.address || undefined,
@@ -385,6 +394,7 @@ export const SaleController = {
                     FROM product_variants pv
                     JOIN products p ON p.id = pv.product_id
                     WHERE pv.id IN (${Prisma.join(variantIds)})
+                      AND p.shop_id = ${shopId}
                     FOR UPDATE OF pv
                 `
             );
@@ -420,15 +430,17 @@ export const SaleController = {
             }
 
             // 6d. Invoice number — atomic increment inside transaction
-            const counter = await tx.counter.update({
-                where: { key: "invoice" },
-                data: { value: { increment: 1 } },
+            const counter = await tx.counter.upsert({
+                where: { shop_id_key: { shop_id: shopId, key: "invoice" } },
+                update: { value: { increment: 1 } },
+                create: { shop_id: shopId, key: "invoice", value: 1001 },
             });
             const invoiceNo = `INV-${new Date().getFullYear()}-${String(counter.value).padStart(6, "0")}`;
 
             // 6e. Create sale + items + optional payment
             const newSale = await tx.sale.create({
                 data: {
+                    shop_id: shopId,
                     user_id: userId,
                     invoice_number: invoiceNo,
                     invoiced_at: new Date(),
@@ -494,6 +506,7 @@ export const SaleController = {
 
     async getStats(c: Context) {
         const { from, to } = c.req.query();
+        const shopId = c.get("shopId") as string;
 
         if (!from || !to) {
             return sendError(c, "Timeline is required", "INVALID_REQUEST", 422);
@@ -518,6 +531,7 @@ export const SaleController = {
             // Revenue + sale count (current) — exclude VOID
             prisma.sale.aggregate({
                 where: {
+                    shop_id: shopId,
                     invoiced_at: { gte: currentFrom, lte: currentTo },
                     status: { not: SaleStatus.VOID },
                 },
@@ -530,6 +544,7 @@ export const SaleController = {
                 where: {
                     created_at: { gte: currentFrom, lte: currentTo },
                     sale: {
+                        shop_id: shopId,
                         invoiced_at: { gte: currentFrom, lte: currentTo },
                         status: { not: SaleStatus.VOID },
                     },
@@ -540,6 +555,7 @@ export const SaleController = {
             // Voided sales count (current) — operational health signal
             prisma.sale.count({
                 where: {
+                    shop_id: shopId,
                     invoiced_at: { gte: currentFrom, lte: currentTo },
                     status: SaleStatus.VOID,
                 },
@@ -548,6 +564,7 @@ export const SaleController = {
             // Revenue + sale count (previous) — exclude VOID
             prisma.sale.aggregate({
                 where: {
+                    shop_id: shopId,
                     invoiced_at: { gte: prevFrom, lte: prevTo },
                     status: { not: SaleStatus.VOID },
                 },
@@ -560,6 +577,7 @@ export const SaleController = {
                 where: {
                     created_at: { gte: prevFrom, lte: prevTo },
                     sale: {
+                        shop_id: shopId,
                         invoiced_at: { gte: prevFrom, lte: prevTo },
                         status: { not: SaleStatus.VOID },
                     },
@@ -570,6 +588,7 @@ export const SaleController = {
             // Voided sales count (previous)
             prisma.sale.count({
                 where: {
+                    shop_id: shopId,
                     invoiced_at: { gte: prevFrom, lte: prevTo },
                     status: SaleStatus.VOID,
                 },
@@ -657,6 +676,7 @@ export const SaleController = {
         // ── Execute ────────────────────────────────────────────────────────────────
 
         const query = buildSalesQuery({
+            shopId: c.get("shopId") as string,
             fromDate,
             toDate,
             filterKey,
@@ -734,7 +754,8 @@ export const SaleController = {
                     COALESCE(SUM(p.amount), 0) AS paid
                 FROM sales s
                 LEFT JOIN payments p ON p.sale_id = s.id
-                WHERE s.invoiced_at >= ${fromDate}
+                WHERE s.shop_id = ${c.get("shopId") as string}
+                  AND s.invoiced_at >= ${fromDate}
                   AND s.invoiced_at <= ${toDate}
                   AND s.status = 'COMPLETED'
                 GROUP BY s.id, s.total
@@ -772,8 +793,11 @@ export const SaleController = {
     async getPaymentData(c: Context) {
         const { invoiceNo } = c.req.query();
 
-        const sale = await prisma.sale.findUnique({
-            where: { invoice_number: invoiceNo },
+        const sale = await prisma.sale.findFirst({
+            where: {
+                invoice_number: invoiceNo,
+                shop_id: c.get("shopId") as string,
+            },
             include: {
                 customer: {
                     select: {
@@ -817,6 +841,7 @@ export const SaleController = {
 
     async createPayment(c: Context) {
         const body: PaymentCollectPayload = await c.req.json();
+        const shopId = c.get("shopId") as string;
 
         const { saleId, amount, method, reference } = body;
 
@@ -837,15 +862,15 @@ export const SaleController = {
             // otherwise two requests can both read the same prior-paid sum,
             // both pass the "doesn't exceed total" check, and both insert.
             const locked = await tx.$queryRaw<Array<{ id: string }>>(
-                Prisma.sql`SELECT id FROM sales WHERE id = ${saleId} FOR UPDATE`
+                Prisma.sql`SELECT id FROM sales WHERE id = ${saleId} AND shop_id = ${shopId} FOR UPDATE`
             );
 
             if (locked.length === 0) {
                 throw new AppError("Sale not found", "NOT_FOUND", 404);
             }
 
-            const sale = await tx.sale.findUnique({
-                where: { id: saleId },
+            const sale = await tx.sale.findFirst({
+                where: { id: saleId, shop_id: shopId },
                 select: { id: true, total: true, payments: true },
             });
 

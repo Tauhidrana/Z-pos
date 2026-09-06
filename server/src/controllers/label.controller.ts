@@ -37,11 +37,12 @@ export const LabelController = {
      */
     async getLabelSources(c: Context) {
         const search = c.req.query("search")?.trim() ?? "";
+        const shopId = c.get("shopId") as string;
 
         const variants = await prisma.productVariant.findMany({
             where: {
                 is_active: true,
-                product: { is_active: true },
+                product: { is_active: true, shop_id: shopId },
                 ...(search
                     ? {
                         OR: [
@@ -100,9 +101,10 @@ export const LabelController = {
     async issueBarcode(c: Context) {
         const variantId = (c.get("validatedBody") as { variantId: string }).variantId;
         const userId = c.get("userId") as string;
+        const shopId = c.get("shopId") as string;
 
-        const variant = await prisma.productVariant.findUnique({
-            where: { id: variantId },
+        const variant = await prisma.productVariant.findFirst({
+            where: { id: variantId, product: { shop_id: shopId } },
             select: {
                 id: true,
                 name: true,
@@ -151,7 +153,7 @@ export const LabelController = {
         // where the sell price lives, so a variant that was never purchased
         // cannot be labelled with a meaningful price.
         const latestBatch = await prisma.purchaseItem.findFirst({
-            where: { variant_id: variantId },
+            where: { variant_id: variantId, purchase: { shop_id: shopId } },
             select: { id: true, sell_price: true },
             orderBy: { purchase: { date: "desc" } },
         });

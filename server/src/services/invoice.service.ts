@@ -8,9 +8,15 @@ function d(val: Decimal): number {
     return val.toNumber();
 }
 
-export async function generateInvoice(saleId: string): Promise<Invoice> {
-    const sale = await prisma.sale.findUnique({
-        where: { id: saleId },
+/**
+ * `shopId` is required, not optional: this resolves a sale by id alone, and an
+ * id is guessable enough that leaving the tenant out would make it a way to
+ * read another shop's invoice. Nothing calls this yet — the parameter exists so
+ * the first caller cannot forget.
+ */
+export async function generateInvoice(saleId: string, shopId: string): Promise<Invoice> {
+    const sale = await prisma.sale.findFirst({
+        where: { id: saleId, shop_id: shopId },
         include: {
             user: {
                 select: { id: true, name: true },

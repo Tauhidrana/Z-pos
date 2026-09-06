@@ -24,11 +24,20 @@ function daysAgo(n: number): Date {
 async function main() {
     console.log("🌱 Seeding database...");
 
+    // ── Shop ─────────────────────────────────────────────────────────────────────
+    // Everything below belongs to one shop. Data is scoped per shop, so seeding
+    // without one would produce rows no account can reach.
+    const existingShop = await prisma.shop.findFirst({ where: { name: "Demo Shop" } });
+    const shop =
+        existingShop ??
+        (await prisma.shop.create({ data: { name: "Demo Shop" } }));
+    const shopId = shop.id;
+
     // ── Counter ──────────────────────────────────────────────────────────────────
     await prisma.counter.upsert({
-        where: { key: "invoice" },
+        where: { shop_id_key: { shop_id: shopId, key: "invoice" } },
         update: {},
-        create: { key: "invoice", value: 1000 },
+        create: { shop_id: shopId, key: "invoice", value: 1000 },
     });
 
     // ── Users (auth is Clerk-managed; seed creates DB records for invite approval) ─
@@ -41,6 +50,7 @@ async function main() {
             phone: "01711000001",
             role: Role.OWNER,
             status: "ACCEPTED",
+            shop_id: shopId,
         },
     });
 
@@ -53,6 +63,7 @@ async function main() {
             phone: "01711000002",
             role: Role.STAFF,
             status: "ACCEPTED",
+            shop_id: shopId,
         },
     });
 
@@ -65,6 +76,7 @@ async function main() {
             phone: "01711000003",
             role: Role.STAFF,
             status: "ACCEPTED",
+            shop_id: shopId,
         },
     });
 
@@ -86,9 +98,9 @@ async function main() {
     const customers = await Promise.all(
         customerData.map((c) =>
             prisma.customer.upsert({
-                where: { phone: c.phone },
+                where: { shop_id_phone: { shop_id: shopId, phone: c.phone } },
                 update: {},
-                create: { ...c, credit_balance: dec(rnd(0, 500)) },
+                create: { ...c, shop_id: shopId, credit_balance: dec(rnd(0, 500)) },
             })
         )
     );
@@ -96,27 +108,28 @@ async function main() {
 
     // ── Categories ────────────────────────────────────────────────────────────────
     const electronics = await prisma.category.upsert({
-        where: { slug: "electronics" },
+        where: { shop_id_slug: { shop_id: shopId, slug: "electronics" } },
         update: {},
-        create: { name: "Electronics", slug: "electronics", description: "Electronic gadgets and accessories" },
+        create: { shop_id: shopId, name: "Electronics", slug: "electronics", description: "Electronic gadgets and accessories" },
     });
 
     const clothing = await prisma.category.upsert({
-        where: { slug: "clothing" },
+        where: { shop_id_slug: { shop_id: shopId, slug: "clothing" } },
         update: {},
-        create: { name: "Clothing", slug: "clothing", description: "Apparel and fashion" },
+        create: { shop_id: shopId, name: "Clothing", slug: "clothing", description: "Apparel and fashion" },
     });
 
     const groceries = await prisma.category.upsert({
-        where: { slug: "groceries" },
+        where: { shop_id_slug: { shop_id: shopId, slug: "groceries" } },
         update: {},
-        create: { name: "Groceries", slug: "groceries", description: "Daily essentials" },
+        create: { shop_id: shopId, name: "Groceries", slug: "groceries", description: "Daily essentials" },
     });
 
     const phones = await prisma.category.upsert({
-        where: { slug: "phones" },
+        where: { shop_id_slug: { shop_id: shopId, slug: "phones" } },
         update: {},
         create: {
+            shop_id: shopId,
             name: "Phones",
             slug: "phones",
             description: "Smartphones and accessories",
@@ -125,9 +138,10 @@ async function main() {
     });
 
     const accessories = await prisma.category.upsert({
-        where: { slug: "accessories" },
+        where: { shop_id_slug: { shop_id: shopId, slug: "accessories" } },
         update: {},
         create: {
+            shop_id: shopId,
             name: "Accessories",
             slug: "accessories",
             description: "Phone and electronics accessories",
@@ -138,21 +152,21 @@ async function main() {
 
     // ── Suppliers ─────────────────────────────────────────────────────────────────
     const supplier1 = await prisma.supplier.upsert({
-        where: { phone: "01900000001" },
+        where: { shop_id_phone: { shop_id: shopId, phone: "01900000001" } },
         update: {},
-        create: { name: "Dhaka Electronics Wholesale", phone: "01900000001", email: "dew@supplier.com" },
+        create: { shop_id: shopId, name: "Dhaka Electronics Wholesale", phone: "01900000001", email: "dew@supplier.com" },
     });
 
     const supplier2 = await prisma.supplier.upsert({
-        where: { phone: "01900000002" },
+        where: { shop_id_phone: { shop_id: shopId, phone: "01900000002" } },
         update: {},
-        create: { name: "Fashion Hub BD", phone: "01900000002", email: "fashionhub@supplier.com" },
+        create: { shop_id: shopId, name: "Fashion Hub BD", phone: "01900000002", email: "fashionhub@supplier.com" },
     });
 
     const supplier3 = await prisma.supplier.upsert({
-        where: { phone: "01900000003" },
+        where: { shop_id_phone: { shop_id: shopId, phone: "01900000003" } },
         update: {},
-        create: { name: "Agro Fresh Supplies", phone: "01900000003", email: null },
+        create: { shop_id: shopId, name: "Agro Fresh Supplies", phone: "01900000003", email: null },
     });
     console.log("✅ Suppliers created");
 
@@ -167,7 +181,7 @@ async function main() {
     ) {
         const normalized_key = name.toLowerCase().replace(/\s+/g, "-");
         // Check if exists by normalized_key
-        const existing = await prisma.product.findFirst({ where: { normalized_key } });
+        const existing = await prisma.product.findFirst({ where: { normalized_key, shop_id: shopId } });
         if (existing) {
             const existingVariants = await prisma.productVariant.findMany({ where: { product_id: existing.id } });
             return { product: existing, variants: existingVariants };
@@ -175,6 +189,7 @@ async function main() {
 
         const product = await prisma.product.create({
             data: {
+                shop_id: shopId,
                 name,
                 normalized_key,
                 brand,
@@ -291,6 +306,7 @@ async function main() {
     // Purchase 1 — Electronics batch (30 days ago)
     const purchase1 = await prisma.purchase.create({
         data: {
+            shop_id: shopId,
             supplier_id: supplier1.id,
             user_id: owner.id,
             invoice_no: "PUR-2024-001",
@@ -345,6 +361,7 @@ async function main() {
     // Purchase 2 — Clothing batch (20 days ago)
     const purchase2 = await prisma.purchase.create({
         data: {
+            shop_id: shopId,
             supplier_id: supplier2.id,
             user_id: staff1.id,
             invoice_no: "PUR-2024-002",
@@ -401,6 +418,7 @@ async function main() {
     // Purchase 3 — Grocery batch (15 days ago)
     const purchase3 = await prisma.purchase.create({
         data: {
+            shop_id: shopId,
             supplier_id: supplier3.id,
             user_id: owner.id,
             invoice_no: "PUR-2024-003",
@@ -436,6 +454,7 @@ async function main() {
     // iPhone purchase — separate, higher value (10 days ago)
     const purchase4 = await prisma.purchase.create({
         data: {
+            shop_id: shopId,
             supplier_id: supplier1.id,
             user_id: owner.id,
             invoice_no: "PUR-2024-004",
@@ -486,6 +505,7 @@ async function main() {
     // ── Stock Adjustment ──────────────────────────────────────────────────────────
     const adjustment = await prisma.stockAdjustment.create({
         data: {
+            shop_id: shopId,
             adjusted_by: owner.id,
             reason: "Damage write-off",
             note: "3 chargers found damaged during stock count",
@@ -534,6 +554,7 @@ async function main() {
 
         const sale = await prisma.sale.create({
             data: {
+            shop_id: shopId,
                 user_id: opts.userId,
                 customer_id: opts.customerId ?? null,
                 invoice_number: inv,
