@@ -155,6 +155,9 @@ describe('POST /api/products/create', () => {
     // to `variants.0.color.size` — a path no input owns — so react-hook-form
     // blocked the submit while rendering no message: the button did nothing.
     function mockCreateTransaction() {
+        mockPrisma.productVariant.create.mockImplementation((args: any) =>
+            Promise.resolve({ id: 'var-1', ...args.data }),
+        )
         mockPrisma.$transaction.mockImplementationOnce(async (fn: any) =>
             fn({
                 ...mockPrisma,
@@ -168,10 +171,10 @@ describe('POST /api/products/create', () => {
                     ...mockPrisma.product,
                     create: () => Promise.resolve({ id: 'new-prod', name: 'Rice' }),
                 },
-                productVariant: {
-                    ...mockPrisma.productVariant,
-                    create: (args: any) => Promise.resolve({ id: 'var-1', ...args.data }),
-                },
+                // The variant create has to stay the recorded mock, not a bare
+                // arrow: the opening stock and price are written on this call,
+                // so a stub that swallows its arguments makes them unassertable.
+                productVariant: mockPrisma.productVariant,
             })
         )
     }
@@ -223,6 +226,61 @@ describe('POST /api/products/create', () => {
             variants: [{ color: 'Red', size: 'M' }, { color: 'Blue', size: 'L' }],
         })
         expect(res.status).toBe(201)
+    })
+
+    it('records initial variant stock in both the ledger and current balance', async () => {
+        mockCreateTransaction()
+        const res = await post(app, '/api/products/create', {
+            ...BASE,
+            variants: [{ stock: 12 }],
+        })
+
+        expect(res.status).toBe(201)
+        expect(mockPrisma.stockAdjustment.create.mock.calls[0]?.[0].data).toMatchObject({
+            shop_id: 'test-shop-uuid',
+            adjusted_by: 'test-user-uuid',
+            reason: 'Initial stock',
+        })
+        expect(mockPrisma.stockAdjustmentItem.createMany.mock.calls[0]?.[0].data).toEqual([
+            expect.objectContaining({ variant_id: 'var-1', quantity: 12, direction: 'IN' }),
+        ])
+        expect(mockPrisma.stockLedger.createMany.mock.calls[0]?.[0].data).toEqual([
+            expect.objectContaining({ variant_id: 'var-1', quantity: 12, balance_after: 12 }),
+        ])
+        // The balance is written on the variant row itself, not by a follow-up
+        // update: the row is created inside this same transaction, so nobody
+        // else can observe it until commit and a second statement would only
+        // be a chance for the two to disagree.
+        expect(mockPrisma.productVariant.create.mock.calls[0]?.[0].data).toMatchObject({
+            stock_on_hand: 12,
+        })
+    })
+
+    it('records the opening selling price, so the stock is actually sellable', async () => {
+        mockCreateTransaction()
+        const res = await post(app, '/api/products/create', {
+            ...BASE,
+            variants: [{ stock: 5, sell_price: 249.5 }],
+        })
+
+        expect(res.status).toBe(201)
+        expect(mockPrisma.productVariant.create.mock.calls[0]?.[0].data).toMatchObject({
+            stock_on_hand: 5,
+            last_sell_price: 249.5,
+        })
+    })
+
+    it('leaves the price null when none was given, rather than pricing at zero', async () => {
+        mockCreateTransaction()
+        const res = await post(app, '/api/products/create', {
+            ...BASE,
+            variants: [{ stock: 5 }],
+        })
+
+        expect(res.status).toBe(201)
+        // Null, not 0 — the storefront withholds an unpriced product, whereas a
+        // ৳0 price would put it on sale for nothing.
+        expect(mockPrisma.productVariant.create.mock.calls[0]?.[0].data.last_sell_price).toBeNull()
     })
 })
 

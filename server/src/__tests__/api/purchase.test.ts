@@ -64,12 +64,15 @@ describe('POST /api/purchase/create', () => {
         // The serial must come from the reserved sequence, not a manual increment
         expect(mockPrisma.barcode.createMany.mock.calls[0]?.[0].data[0].serial).toBe(1001)
 
-        // Ledger and the denormalized stock column must move together
+        // Ledger and the denormalized stock column must move together, and the
+        // batch's sell price becomes the variant's shelf price — that column is
+        // what the storefront quotes, since a web shopper has no barcode to
+        // price a specific batch from.
         const ledgerRow = mockPrisma.stockLedger.createMany.mock.calls[0]?.[0].data[0]
         expect(ledgerRow.balance_after).toBe(2) // 0 on hand + 2 purchased
         expect(mockPrisma.productVariant.update.mock.calls[0]?.[0]).toEqual({
             where: { id: VARIANT_ID },
-            data: { stock_on_hand: { increment: 2 } },
+            data: { stock_on_hand: { increment: 2 }, last_sell_price: 20 },
         })
     })
 

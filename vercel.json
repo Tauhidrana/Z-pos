@@ -1,5 +1,5 @@
 {
-  "buildCommand": "bun install && cd server && bunx prisma generate && bun build src/app.ts --target=node --format=esm --env=disable --outfile=../api/_app.mjs && cd ../client && bun run build",
+  "buildCommand": "bun install && cd server && bunx prisma migrate deploy && bunx prisma generate && bun build src/app.ts --target=node --format=esm --env=disable --outfile=../api/_app.mjs && cd ../client && bun run build",
   "outputDirectory": "client/dist/public",
   "rewrites": [
     {

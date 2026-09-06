@@ -39,8 +39,15 @@ export const mockPrisma = {
     variantBarcodeAllocation: makeModel(),
     counter: makeModel(),
     stockAdjustment: makeModel(),
+    stockAdjustmentItem: makeModel(),
     supplier: makeModel(),
     user: makeModel(),
+    shop: makeModel(),
+    store: makeModel(),
+    onlineOrder: makeModel(),
+    onlineOrderItem: makeModel(),
+    productImage: makeModel(),
+    mediaAsset: makeModel(),
     $queryRaw: mock((..._args: any[]) => Promise.resolve<any[]>([])),
     $executeRaw: mock((..._args: any[]) => Promise.resolve<any>(0)),
     $transaction: mock((fn: any) =>
@@ -69,7 +76,8 @@ export function resetAllMocks() {
     const models = [
         'product', 'productVariant', 'category', 'customer', 'sale', 'saleItem',
         'payment', 'purchase', 'purchaseItem', 'stockLedger', 'barcode',
-        'variantBarcodeAllocation', 'counter', 'stockAdjustment', 'supplier', 'user',
+        'variantBarcodeAllocation', 'counter', 'stockAdjustment', 'stockAdjustmentItem', 'supplier', 'user',
+        'shop', 'store', 'onlineOrder', 'onlineOrderItem', 'productImage', 'mediaAsset',
     ] as const
     for (const key of models) {
         resetModel(mockPrisma[key] as any)

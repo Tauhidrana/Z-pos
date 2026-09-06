@@ -113,12 +113,19 @@ export const PurchaseController = {
                 })),
             });
 
-            // 7b. Keep the denormalized stock column in step with the ledger.
+            // 7b. Keep the denormalized stock column in step with the ledger,
+            //     and record this batch's sell price as the variant's current
+            //     shelf price. The till prices a unit from the batch its
+            //     scanned barcode belongs to, but a storefront shopper has no
+            //     barcode — `last_sell_price` is what the web catalog quotes.
             await Promise.all(
                 variants.map((v) =>
                     tx.productVariant.update({
                         where: { id: v.variantId },
-                        data: { stock_on_hand: { increment: Number(v.quantity) ?? 0 } },
+                        data: {
+                            stock_on_hand: { increment: Number(v.quantity) ?? 0 },
+                            last_sell_price: Number(v.sellingPrice) ?? 0,
+                        },
                     })
                 )
             );

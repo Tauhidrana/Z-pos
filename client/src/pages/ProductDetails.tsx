@@ -49,6 +49,7 @@ type Variant = {
   color?: string | null;
   size?: string | null;
   isActive: boolean;
+  stock?: number;
 };
 
 type DetailsFormValues = {
@@ -114,6 +115,12 @@ export default function ProductDetailPage() {
             <h1 className="text-xl font-semibold">{product.name}</h1>
             <p className="text-sm text-muted-foreground">
               {product.category.name} · {product.brand ?? "No brand"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              In stock: {product.variants.reduce(
+                (total, variant) => total + (variant.isActive ? variant.stock : 0),
+                0,
+              )}
             </p>
           </div>
         </div>
@@ -664,6 +671,10 @@ function VariantCard({
           </button> */}
         </div>
       </div>
+
+      <p className="text-sm text-muted-foreground">
+        Stock: <span className="font-medium text-foreground">{variant.stock ?? 0}</span>
+      </p>
 
       {/* Edit fields — shown only when editing */}
       {isEditing && (

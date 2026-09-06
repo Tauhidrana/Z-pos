@@ -35,20 +35,13 @@ import {
   type CreateProduct,
 } from "@myapp/shared/schemas/product.schema";
 import { Spinner } from "./ui/spinner";
-import type {
-  QueryObserverResult,
-  RefetchOptions,
-} from "@tanstack/react-query";
-import type { FlatCategory, ProductTableRow, TableResponse } from "@/types";
+import { ImageGalleryField } from "./image-upload";
+import type { FlatCategory } from "@/types";
 
 export function ProductModal({
   categories = [],
-  refetchProducts,
 }: {
   categories?: FlatCategory[];
-  refetchProducts: (
-    options?: RefetchOptions | undefined,
-  ) => Promise<QueryObserverResult<TableResponse<ProductTableRow>, Error>>;
 }) {
   const { mutate: createProduct, isPending } = usePostData("/products/create");
 
@@ -60,6 +53,7 @@ export function ProductModal({
       brand: "",
       category_id: "",
       variants: [{ stock: 0 }],
+      images: [],
     },
   });
 
@@ -72,7 +66,6 @@ export function ProductModal({
     createProduct(values, {
       onSuccess: () => {
         toast.success("Product created successfully");
-        refetchProducts();
         form.reset();
       },
       onError: (error) => {
@@ -213,6 +206,27 @@ export function ProductModal({
               />
             </div>
 
+            {/* Photos — uploaded from the device, never linked from elsewhere.
+                A shopkeeper's product pictures are on their phone, not on a web
+                server they can paste a URL from. */}
+            <FormField
+              control={form.control}
+              name="images"
+              render={({ field }) => (
+                <FormItem>
+                  <FormControl>
+                    <ImageGalleryField
+                      label="Product Photos"
+                      hint="Upload from your phone or computer. The first photo is shown in listings and in your online store."
+                      value={field.value ?? []}
+                      onChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             {/* Variants */}
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -313,6 +327,41 @@ export function ProductModal({
                             </FormControl>
                             <p className="text-xs text-muted-foreground">
                               Quantity currently available for this variant.
+                            </p>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name={`variants.${index}.sell_price`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Selling Price (৳)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="0.00"
+                                {...field}
+                                value={field.value ?? ""}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  // Allow an empty field and a half-typed
+                                  // decimal ("120.") while the user is still
+                                  // typing; anything else is rejected outright
+                                  // rather than silently coerced to NaN.
+                                  if (!/^\d*\.?\d{0,2}$/.test(value)) return;
+                                  field.onChange(
+                                    value === "" ? undefined : Number(value),
+                                  );
+                                }}
+                              />
+                            </FormControl>
+                            <p className="text-xs text-muted-foreground">
+                              Without a price this variant cannot be sold or
+                              shown in your online store.
                             </p>
                             <FormMessage />
                           </FormItem>

@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && NODE_ENV=production vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "bun test src/__tests__"
   },
   "dependencies": {
     "@clerk/react": "^6.4.6",

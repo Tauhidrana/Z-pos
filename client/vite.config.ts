@@ -85,6 +85,17 @@ export default defineConfig(({ command }) => {
               priority: 40,
             },
             {
+              // Must outrank vendor-clerk. React Query is imported by the
+              // dashboard (through Clerk-bearing hooks) and by the storefront
+              // (which must never load Clerk at all). Without its own group it
+              // was absorbed into whichever vendor chunk claimed it first —
+              // vendor-clerk — so opening a storefront downloaded 113 kB of an
+              // authentication SDK to reach one query helper.
+              name: "vendor-query",
+              test: /node_modules[\\/]@tanstack[\\/]/,
+              priority: 40,
+            },
+            {
               name: "vendor-clerk",
               test: /node_modules[\\/]@clerk[\\/]/,
               priority: 20,

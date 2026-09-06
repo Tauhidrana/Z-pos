@@ -4,6 +4,7 @@ import type { CreateProduct } from "@myapp/shared/schemas/product.schema";
 import type { PrismaTx, ProductRow, ProductStatus, ProductTableRow } from "@/types";
 import { Prisma, StockDirection, StockMovementType } from "generated/prisma";
 import { AppError } from "@/utils/AppError";
+import { resolveImageRefs } from "@/controllers/media.controller";
 
 export const ProductService = {
     async getAll(
@@ -115,6 +116,16 @@ export const ProductService = {
     async create(data: CreateProduct, shopId: string, userId: string) {
         const normalized = normalizeProductName(data.name);
 
+        // Every uploaded image has to belong to this shop. Checked before the
+        // transaction opens, so a bad reference costs nothing and never holds a
+        // write lock; without it, a caller could attach another shop's
+        // photograph to their own product by quoting its id.
+        const resolved = await resolveImageRefs(data.images ?? [], shopId);
+        if (!resolved.ok) {
+            throw new AppError(resolved.error, "INVALID_INPUT", 422);
+        }
+        const images = resolved.values;
+
         const result = await prisma.$transaction(async (tx) => {
             // The category must belong to the same shop, or a caller could
             // attach their product to someone else's category by id.
@@ -146,6 +157,20 @@ export const ProductService = {
                     }
                 }
             })
+            // Photographs are attached to the product itself rather than a
+            // variant: a colour/size split of the same item is the same item in
+            // a picture, and per-variant galleries would ask the merchant to
+            // photograph the same shirt four times.
+            if (images.length > 0) {
+                await tx.productImage.createMany({
+                    data: images.map((ref, index) => ({
+                        product_id: product.id,
+                        url: ref,
+                        position: index,
+                    })),
+                });
+            }
+
             const variants = await Promise.all(
                 data.variants.map((variant) => {
                     // Build the label from whichever attributes are present.
@@ -165,6 +190,19 @@ export const ProductService = {
                             name,
                             color,
                             size,
+                            // New rows are invisible to other transactions until
+                            // commit. Return the same balance as the ledger below.
+                            stock_on_hand: variant.stock ?? 0,
+                            // The shelf price. Without it the product is stock
+                            // nobody can buy — the till has nothing to ring up
+                            // and the storefront withholds the product rather
+                            // than quote it at zero. A later purchase overwrites
+                            // this with that batch's price, which is correct:
+                            // the newest batch sets the current shelf price.
+                            last_sell_price:
+                                variant.sell_price && variant.sell_price > 0
+                                    ? variant.sell_price
+                                    : null,
                         },
                     });
 
@@ -213,14 +251,6 @@ export const ProductService = {
                     })),
                 });
 
-                await Promise.all(
-                    openingStock.map((item) =>
-                        tx.productVariant.update({
-                            where: { id: item.variantId },
-                            data: { stock_on_hand: item.quantity },
-                        })
-                    )
-                );
             }
             return { product, variants };
         });

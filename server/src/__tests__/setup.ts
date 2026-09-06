@@ -9,6 +9,9 @@ import dashboardRouter from '@/routes/dashbord.route'
 import customerRouter from '@/routes/customer.route'
 import purchaseRouter from '@/routes/purchase.route'
 import adminRouter from '@/routes/admin.route'
+import storeRouter from '@/routes/store.route'
+import storefrontRouter from '@/routes/storefront.route'
+import mediaRouter, { mediaPublicRouter } from '@/routes/media.route'
 import type { AppEnv } from '@/types'
 
 // Creates a test version of the app that bypasses Clerk auth
@@ -16,6 +19,12 @@ import type { AppEnv } from '@/types'
 // Pass 'STAFF' to test role-gated (requireRole) rejection paths.
 export function createTestApp(role: 'OWNER' | 'STAFF' = 'OWNER') {
     const app = new Hono<AppEnv>()
+
+    // The public storefront is mounted before the auth stub, mirroring app.ts —
+    // its whole point is that it resolves without a session, so a test app that
+    // injected one would not be testing the same thing production runs.
+    app.route('/api/storefront', storefrontRouter)
+    app.route('/api/media', mediaPublicRouter)
 
     // Stub auth: skip Clerk verification, inject test user into context
     app.use('/api/*', async (c, next) => {
@@ -39,6 +48,8 @@ export function createTestApp(role: 'OWNER' | 'STAFF' = 'OWNER') {
     app.route('/api/customers', customerRouter)
     app.route('/api/purchase', purchaseRouter)
     app.route('/api/admin', adminRouter)
+    app.route('/api/store', storeRouter)
+    app.route('/api/media', mediaRouter)
 
     app.onError((err, c) => {
         if (err instanceof AppError) return sendError(c, err.message, err.code, err.status, err.details)

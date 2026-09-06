@@ -29,3 +29,8 @@ All 21 legacy migrations were created with the name `_init`. This file records w
 | `20260620000002` | Add CHECK constraint on `stock_ledgers` — at most one of `sale_id / purchase_id / adjustment_id` may be non-null per row |
 | `20260620000003` | Drop orphaned `base_variant_id` column from `products` |
 | `20260620000004` | Make `customers.name` NOT NULL with default `'Walk-in Customer'`; add non-unique index on `customers.email` |
+| `20260620000005` | Denormalize variant stock onto `product_variants.stock_on_hand` |
+| `20260620000006` | Index `sales.created_at` and `(status, created_at)` for the dashboard |
+| `20260906000001` | Multi-tenancy — `shops` table, `shop_id` on every owned table |
+| `20260906120000` | Online store — `stores`, `online_orders`, `online_order_items`, `product_images`; storefront columns on `products` (`slug`, `online_visible`, `is_featured`) and `product_variants` (`last_sell_price`, `online_price`, `online_sale_price`); `sales.delivery_charge`; `stock_ledgers.online_order_id` with the one-source CHECK widened to four |
+| `20260906180000` | Uploaded images — `media_assets` (bytes in Postgres, served by `GET /api/media/:id`), replacing URL-linked product photos, logos and banners |

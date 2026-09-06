@@ -25,6 +25,10 @@ const NewPurchase = lazy(() => import("@/pages/new-purchase"));
 const SalesPage = lazy(() => import("@/pages/Sales"));
 const AdminPage = lazy(() => import("@/pages/Admin"));
 const BarcodeGenerator = lazy(() => import("@/pages/BarcodeGenerator"));
+const OnlineStore = lazy(() => import("@/pages/store/OnlineStore"));
+const StoreSettings = lazy(() => import("@/pages/store/StoreSettings"));
+const StoreProducts = lazy(() => import("@/pages/store/StoreProducts"));
+const StoreOrders = lazy(() => import("@/pages/store/StoreOrders"));
 const Login = lazy(() => import("@/pages/Login"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -109,6 +113,12 @@ function ProtectedRouter() {
             <Route path="/purchases/new" component={NewPurchase} />
             <Route path="/sales" component={SalesPage} />
             <Route path="/barcodes" component={BarcodeGenerator} />
+            {/* Online store. Listed most-specific first — wouter matches in
+                order, so a bare "/store" above these would swallow them. */}
+            <Route path="/store/settings" component={StoreSettings} />
+            <Route path="/store/products" component={StoreProducts} />
+            <Route path="/store/orders" component={StoreOrders} />
+            <Route path="/store" component={OnlineStore} />
             <Route path="/admin">
               {meLoading ? null : isOwner ? <AdminPage /> : <Redirect to="/" />}
             </Route>

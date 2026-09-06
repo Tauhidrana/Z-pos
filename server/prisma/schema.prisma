@@ -55,6 +55,25 @@ enum InviteStatus {
   CANCELLED
 }
 
+/// Fulfilment stages an online (storefront) order moves through. Deliberately
+/// separate from `SaleStatus`, which describes an in-person POS sale that is
+/// already money in the till the moment it is rung up. An online order is a
+/// promise until it is delivered.
+enum OnlineOrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+/// Only cash on delivery today. The column exists so adding bKash/Nagad later
+/// is a migration on this enum rather than a rewrite of the checkout.
+enum OnlineOrderPaymentMethod {
+  COD
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Users
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,27 +108,30 @@ model Shop {
   purchases        Purchase[]
   stockAdjustments StockAdjustment[]
   counters         Counter[]
+  store            Store?
+  onlineOrders     OnlineOrder[]
+  mediaAssets      MediaAsset[]
 
   @@map("shops")
 }
 
 model User {
-  id       String  @id @default(uuid())
-  clerk_id String? @unique
+  id        String       @id @default(uuid())
+  clerk_id  String?      @unique
   /// Nullable only so an invite row can exist before its shop is resolved;
   /// every admitted session is required to have one.
-  shop_id  String?
-  name     String?
-  email    String  @unique
-  phone    String? @unique
-  status   InviteStatus @default(PENDING)
-  role     Role         @default(OWNER)
-  is_active Boolean     @default(true)
+  shop_id   String?
+  name      String?
+  email     String       @unique
+  phone     String?      @unique
+  status    InviteStatus @default(PENDING)
+  role      Role         @default(OWNER)
+  is_active Boolean      @default(true)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  shop              Shop?     @relation(fields: [shop_id], references: [id], onDelete: SetNull)
+  shop              Shop?                      @relation(fields: [shop_id], references: [id], onDelete: SetNull)
   sales             Sale[]
   purchases         Purchase[]
   stockAdjustments  StockAdjustment[]
@@ -141,8 +163,9 @@ model Customer {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  shop  Shop   @relation(fields: [shop_id], references: [id], onDelete: Cascade)
-  sales Sale[]
+  shop         Shop          @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+  sales        Sale[]
+  onlineOrders OnlineOrder[]
 
   @@unique([shop_id, phone])
   @@index([shop_id])
@@ -180,15 +203,26 @@ model Category {
 }
 
 model Product {
-  id              String  @id @default(uuid())
-  shop_id         String
-  name            String
-  normalized_key  String // lowercased+stripped for duplicate detection
-  description     String?
-  category_id     String
-  brand         String?
-  reorder_level Int     @default(0)
-  is_active     Boolean @default(true)
+  id             String  @id @default(uuid())
+  shop_id        String
+  name           String
+  normalized_key String // lowercased+stripped for duplicate detection
+  description    String?
+  category_id    String
+  brand          String?
+  reorder_level  Int     @default(0)
+  is_active      Boolean @default(true)
+
+  /// URL segment for the storefront, unique within the shop. Nullable because
+  /// a product is reachable by id as well — a slug that has not been generated
+  /// yet must never make the product unroutable.
+  slug           String?
+  /// Whether the storefront lists this product. Defaults to true so a catalog
+  /// that already exists appears the moment the merchant opens their store;
+  /// hiding a single product stays a deliberate act.
+  online_visible Boolean @default(true)
+  /// Promoted into the storefront's "Featured" rail.
+  is_featured    Boolean @default(false)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -196,11 +230,72 @@ model Product {
   shop     Shop             @relation(fields: [shop_id], references: [id], onDelete: Cascade)
   category Category         @relation(fields: [category_id], references: [id], onDelete: Restrict)
   variants ProductVariant[]
+  images   ProductImage[]
 
+  @@unique([shop_id, slug])
   @@index([shop_id])
   @@index([category_id])
   @@index([shop_id, normalized_key])
+  @@index([shop_id, online_visible, is_active])
   @@map("products")
+}
+
+/// An uploaded image, stored in the database.
+///
+/// The deployment has no object storage — no S3 bucket, no blob store, nothing
+/// to hold a file — and adding one would mean provisioning and configuring
+/// infrastructure before a merchant could put a photograph on a product. So the
+/// bytes live here and are served by `GET /api/media/:id`.
+///
+/// This is only sane because the client shrinks every upload before sending it:
+/// a phone photo comes off the camera at 4-6 MB and arrives here at roughly
+/// 100-250 kB. `MAX_IMAGE_BYTES` on the server is the hard backstop.
+///
+/// If an object store is added later, this table becomes the fallback: the
+/// column that changes is the storage key, not anything a caller sees.
+model MediaAsset {
+  id      String @id @default(uuid())
+  shop_id String
+
+  mime   String
+  /// Byte length of `data`, denormalized so a listing never has to read blobs.
+  size   Int
+  width  Int?
+  height Int?
+
+  data Bytes
+
+  created_at DateTime @default(now())
+
+  shop Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+
+  @@index([shop_id])
+  @@index([shop_id, created_at])
+  @@map("media_assets")
+}
+
+/// Storefront imagery for a product. The POS never renders these; they exist
+/// so an online listing can show more than a name.
+///
+/// `url` holds one of two things:
+///   • `media:<uuid>` — an upload, resolved against `MediaAsset`. This is what
+///     everything written through the app produces.
+///   • an absolute `http(s)://` URL — tolerated on read so images that predate
+///     uploads keep rendering, but no longer offered anywhere in the UI.
+model ProductImage {
+  id         String  @id @default(uuid())
+  product_id String
+  url        String
+  alt        String?
+  /// Ascending; position 0 is the listing thumbnail.
+  position   Int     @default(0)
+
+  created_at DateTime @default(now())
+
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@index([product_id, position])
+  @@map("product_images")
 }
 
 model ProductVariant {
@@ -221,12 +316,30 @@ model ProductVariant {
   // call — an O(all movements ever) scan on the hottest read path in the app.
   stock_on_hand Int @default(0)
 
+  // ── Pricing ───────────────────────────────────────────────────────────────
+  // The POS prices a unit from the purchase batch its scanned barcode belongs
+  // to, which is exact at the till but unreachable for a storefront: a web
+  // shopper has no barcode in their hand, so there is no batch to price from.
+  //
+  // `last_sell_price` is the sell price from this variant's most recent
+  // purchase, denormalized on every purchase the same way `stock_on_hand` is.
+  // It is the shelf price — what the next unit sold would cost — and it is what
+  // the storefront quotes when the merchant has not overridden it.
+  last_sell_price Decimal? @db.Decimal(10, 2)
+
+  /// Overrides `last_sell_price` online only. The POS is untouched by it.
+  online_price      Decimal? @db.Decimal(10, 2)
+  /// A temporary discount. Shown as the price, with the regular price struck
+  /// through, whenever it is set and below the regular price.
+  online_sale_price Decimal? @db.Decimal(10, 2)
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   product Product @relation(fields: [product_id], references: [id], onDelete: Restrict)
 
   saleItems                 SaleItem[]
+  onlineOrderItems          OnlineOrderItem[]
   purchaseItems             PurchaseItem[]
   stockAdjustmentItems      StockAdjustmentItem[]
   stockLedgers              StockLedger[]
@@ -393,6 +506,9 @@ model Sale {
   discount_amount Decimal @default(0) @db.Decimal(10, 2)
   tax_amount      Decimal @default(0) @db.Decimal(10, 2)
   waived_amount   Decimal @default(0) @db.Decimal(10, 2)
+  /// Always 0 for a counter sale; carries the shipping fee for a delivered
+  /// online order, so `total` stays the amount actually collected.
+  delivery_charge Decimal @default(0) @db.Decimal(10, 2)
   total           Decimal @db.Decimal(10, 2)
 
   note String?
@@ -407,6 +523,7 @@ model Sale {
   items        SaleItem[]
   payments     Payment[]
   stockLedgers StockLedger[]
+  onlineOrder  OnlineOrder?
 
   @@unique([shop_id, invoice_number])
   @@index([shop_id])
@@ -487,22 +604,28 @@ model StockLedger {
   balance_after Int
 
   // Exactly one non-null per row
-  sale_id       String?
-  purchase_id   String?
-  adjustment_id String?
+  sale_id         String?
+  purchase_id     String?
+  adjustment_id   String?
+  /// A storefront order reserves stock the moment it is placed, long before it
+  /// becomes a Sale — so it is a movement source in its own right rather than
+  /// something squeezed into `sale_id`.
+  online_order_id String?
 
   created_at DateTime @default(now())
 
-  variant    ProductVariant   @relation(fields: [variant_id], references: [id], onDelete: Restrict)
-  sale       Sale?            @relation(fields: [sale_id], references: [id], onDelete: SetNull)
-  purchase   Purchase?        @relation(fields: [purchase_id], references: [id], onDelete: SetNull)
-  adjustment StockAdjustment? @relation(fields: [adjustment_id], references: [id], onDelete: SetNull)
+  variant     ProductVariant   @relation(fields: [variant_id], references: [id], onDelete: Restrict)
+  sale        Sale?            @relation(fields: [sale_id], references: [id], onDelete: SetNull)
+  purchase    Purchase?        @relation(fields: [purchase_id], references: [id], onDelete: SetNull)
+  adjustment  StockAdjustment? @relation(fields: [adjustment_id], references: [id], onDelete: SetNull)
+  onlineOrder OnlineOrder?     @relation(fields: [online_order_id], references: [id], onDelete: SetNull)
 
   @@index([variant_id])
   @@index([variant_id, created_at])
   @@index([sale_id])
   @@index([purchase_id])
   @@index([adjustment_id])
+  @@index([online_order_id])
   @@map("stock_ledgers")
 }
 
@@ -545,4 +668,150 @@ model StockAdjustmentItem {
   @@index([adjustment_id])
   @@index([variant_id])
   @@map("stock_adjustment_items")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Online store (storefront)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A shop's public storefront. One per shop — the catalog, categories and
+/// customers a storefront sells from are the shop's own, so a second store
+/// would only ever be a second skin on the same data.
+///
+/// `slug` is the tenant key the public site resolves by: `tds.example.com` or
+/// `/s/tds` both land on the store whose slug is `tds`. It is globally unique
+/// because it is a hostname, not a per-shop label.
+model Store {
+  id      String @id @default(uuid())
+  shop_id String @unique
+  slug    String @unique
+
+  name        String
+  description String?
+
+  logo_url    String?
+  banner_url  String?
+  favicon_url String?
+
+  phone   String?
+  email   String?
+  address String?
+
+  facebook_url    String?
+  instagram_url   String?
+  whatsapp_number String?
+
+  /// Flat shipping fee added at checkout, in BDT.
+  delivery_charge    Decimal  @default(60) @db.Decimal(10, 2)
+  /// Orders at or above this subtotal ship free. Null disables the rule.
+  free_delivery_over Decimal? @db.Decimal(10, 2)
+  /// Checkout refuses a subtotal below this. 0 disables the rule.
+  min_order_amount   Decimal  @default(0) @db.Decimal(10, 2)
+
+  /// Storefront accent colour as a hex string, defaulting to the zPOS rust.
+  theme_color String @default("#a8431d")
+
+  /// A disabled store answers with a closed-shop page instead of the catalog.
+  is_active Boolean @default(true)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  shop   Shop          @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+  orders OnlineOrder[]
+
+  @@index([slug])
+  @@map("stores")
+}
+
+/// An order placed on a storefront. Cash on delivery only for now.
+///
+/// Stock is committed when the order is placed, not when it ships: a customer
+/// who checks out has taken the unit off the shelf as far as everyone else
+/// browsing is concerned, and holding the decrement until delivery is how a
+/// shop oversells. Cancelling returns it (see `stock_restored`).
+model OnlineOrder {
+  id           String @id @default(uuid())
+  shop_id      String
+  store_id     String
+  /// Numbered from the shop's own counter, so two shops both starting at
+  /// ORD-000001 is correct rather than a collision.
+  order_number String
+
+  status         OnlineOrderStatus        @default(PENDING)
+  payment_method OnlineOrderPaymentMethod @default(COD)
+
+  /// The shop's customer record, reused rather than duplicated: an online
+  /// buyer who later walks into the shop is the same person on the same phone
+  /// number. Nullable so a failed upsert can never cost the order.
+  customer_id    String?
+  customer_name  String
+  customer_phone String
+  customer_email String?
+
+  // ── Bangladesh delivery address ──────────────────────────────────────────
+  division     String
+  district     String
+  upazila      String
+  area         String?
+  address_line String
+
+  note String?
+
+  subtotal        Decimal @db.Decimal(10, 2)
+  delivery_charge Decimal @db.Decimal(10, 2)
+  total           Decimal @db.Decimal(10, 2)
+
+  /// The Sale written when the order is marked delivered — that is the point
+  /// the cash actually arrives, so that is when it enters the books.
+  sale_id String? @unique
+
+  /// Guards the restock on cancellation against running twice.
+  stock_restored Boolean   @default(false)
+  cancelled_at   DateTime?
+  delivered_at   DateTime?
+
+  placed_at  DateTime @default(now())
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  shop     Shop      @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+  store    Store     @relation(fields: [store_id], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customer_id], references: [id], onDelete: SetNull)
+  sale     Sale?     @relation(fields: [sale_id], references: [id], onDelete: SetNull)
+
+  items        OnlineOrderItem[]
+  stockLedgers StockLedger[]
+
+  @@unique([shop_id, order_number])
+  @@index([shop_id, status, placed_at])
+  @@index([shop_id, placed_at])
+  @@index([store_id])
+  @@index([customer_id])
+  @@index([customer_phone])
+  @@map("online_orders")
+}
+
+model OnlineOrderItem {
+  id         String @id @default(uuid())
+  order_id   String
+  variant_id String
+
+  // Denormalized snapshots — intentional, exactly as SaleItem does it. What the
+  // customer bought must keep reading the way it did at checkout even after the
+  // product is renamed, repriced or deleted.
+  product_name String
+  variant_name String?
+  image_url    String?
+
+  unit_price Decimal @db.Decimal(10, 2)
+  quantity   Int
+  total      Decimal @db.Decimal(10, 2)
+
+  order   OnlineOrder    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  variant ProductVariant @relation(fields: [variant_id], references: [id], onDelete: Restrict)
+
+  @@index([order_id])
+  @@index([variant_id])
+  @@map("online_order_items")
 }

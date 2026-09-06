@@ -18,17 +18,31 @@ import customerRouter from './routes/customer.route'
 import analyticsRouter from './routes/analytics.route'
 import adminRouter from './routes/admin.route'
 import labelRouter from './routes/label.route'
+import storeRouter from './routes/store.route'
+import storefrontRouter from './routes/storefront.route'
+import mediaRouter, { mediaPublicRouter } from './routes/media.route'
 
 import { requireAuth } from './middleware/auth.middleware'
 import { syncUser } from './middleware/authSyncUser.middleware'
+import { isAllowedOrigin } from './lib/origin'
 import type { AppEnv } from './types'
 
 export const app = new Hono<AppEnv>()
 
-const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') ?? [
-    'http://localhost:3000',
-    'http://localhost:5173',
-]
+// --- Media: relax one header, from outside the security middleware ---------
+// `secureHeaders` sets `Cross-Origin-Resource-Policy: same-origin` on every
+// response, after the handler has run — so a header set inside the media
+// handler is overwritten. A browser refuses a cross-origin <img> on that header
+// before it ever considers CORS, which meant storefront product photos simply
+// did not load whenever the site and the API were on different origins.
+//
+// Registered BEFORE secureHeaders on purpose: an outer middleware's code after
+// `await next()` runs last, so this gets the final word — and only for
+// `/api/media/*`, which serves nothing but public product photographs.
+app.use('/api/media/*', async (c, next) => {
+    await next()
+    c.res.headers.set('Cross-Origin-Resource-Policy', 'cross-origin')
+})
 
 // --- Security Headers ---
 app.use('*', secureHeaders({
@@ -49,19 +63,30 @@ app.use('*', secureHeaders({
 const isDev = process.env.NODE_ENV === 'development'
 
 // --- CSRF Protection (skip in dev) ---
+// A predicate rather than a fixed list: storefronts live on per-merchant
+// subdomains that are created at runtime, so their origins cannot be enumerated
+// at boot. `isAllowedOrigin` matches them by shape against APP_DOMAIN.
 if (!isDev) {
-    app.use('*', csrf({ origin: allowedOrigins }))
+    app.use('*', csrf({ origin: (origin) => isAllowedOrigin(origin) }))
 }
 
 // --- CORS ---
 app.use('*', cors({
-    origin: isDev ? '*' : allowedOrigins,
+    origin: (origin) => (isDev ? origin || '*' : isAllowedOrigin(origin) ? origin : null),
     allowMethods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
     exposeHeaders: ['X-Request-Id'],
     credentials: isDev ? false : true,
     maxAge: 86400,
 }))
+
+// The `origin` callback runs per request, so the response varies by the
+// request's Origin. Without this a shared cache could hand one storefront's
+// CORS headers to another's request.
+app.use('*', async (c, next) => {
+    await next()
+    c.res.headers.append('Vary', 'Origin')
+})
 
 // --- Response compression ---
 // API payloads are JSON (product lists, sales history, dashboard series) and
@@ -102,6 +127,20 @@ app.get('/health', (c) =>
     c.json({ status: 'ok', timestamp: new Date().toISOString() })
 )
 
+// --- Public storefront (no auth) -------------------------------------------
+// Registered BEFORE the `/api/*` auth middleware on purpose. Hono runs matched
+// handlers in registration order and stops at the first one that returns, so
+// these resolve without ever reaching `requireAuth` — which is the point: a
+// shopper browsing a merchant's shop has no zPOS account to authenticate with.
+//
+// It still has to live under `/api/` because that is the only prefix the Vercel
+// rewrite forwards to this function.
+app.route('/api/storefront', storefrontRouter)
+
+// Product photographs, served to storefront visitors who have no session.
+// Same reasoning as above: registered ahead of `requireAuth` on purpose.
+app.route('/api/media', mediaPublicRouter)
+
 // --- Auth middleware for all /api/* routes ---
 // Must be registered BEFORE app.route() calls
 app.use('/api/*', requireAuth, syncUser)
@@ -132,6 +171,8 @@ app.route('/api/analytics', analyticsRouter)
 app.route('/api/customers', customerRouter)
 app.route('/api/admin', adminRouter)
 app.route('/api/labels', labelRouter)
+app.route('/api/store', storeRouter)
+app.route('/api/media', mediaRouter)
 
 // --- Error Handling ---
 app.onError((err, c) => {

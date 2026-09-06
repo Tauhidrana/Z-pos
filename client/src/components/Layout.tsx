@@ -11,6 +11,7 @@ import {
   User2Icon,
   QrCode,
   ScanLine,
+  Globe,
   Menu,
   X,
   MoreHorizontal,
@@ -35,6 +36,7 @@ const navItems = [
   { path: "/customers", label: "Customers", icon: Users },
   // { path: "/analytics", label: "Analytics", icon: BarChart3 },
   { path: "/sales", label: "Sales", icon: ShoppingCart },
+  { path: "/store", label: "Online Store", icon: Globe },
   { path: "/barcodes", label: "Barcode Generator", icon: QrCode },
   // { path: "/settings", label: "Settings", icon: Settings },
 ];

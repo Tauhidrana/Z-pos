@@ -100,7 +100,7 @@ export default function ProductSection({
       color: "text-primary",
     },
     {
-      label: "In Stock",
+      label: "Stock Units",
       value: statsData?.totalStock,
       icon: TrendingUp,
       color: "text-green-600",
@@ -146,7 +146,6 @@ export default function ProductSection({
           </div>
           <ProductModal
             categories={flatCategories}
-            refetchProducts={refetchProducts}
           />
         </div>
 

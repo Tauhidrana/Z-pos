@@ -29,6 +29,9 @@
       "@myapp/shared/*": ["../packages/shared/src/*"]
     }
   },
+  // Tests run under Bun, whose `bun:test` types are not part of the browser
+  // build. They are typechecked by `bun test` itself.
   "include": ["src/**/*", "server/scanner.ts"],
+  "exclude": ["src/__tests__/**"],
   
 }

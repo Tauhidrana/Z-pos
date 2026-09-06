@@ -84,6 +84,7 @@ export const ProductController = {
                 isActive: v.is_active,
                 color: v.color ?? "",
                 size: v.size ?? "",
+                stock: v.stock_on_hand,
             })),
         }
 

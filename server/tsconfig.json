@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "rootDir": "..",
     // Environment setup & latest features
     "lib": ["ESNext"],
     "target": "ESNext",
@@ -30,9 +31,17 @@
     "noPropertyAccessFromIndexSignature": false,
 
     "outDir": "./dist",
+    "ignoreDeprecations": "6.0",
+    // Load-bearing: `paths` below are resolved against it, and the generated
+    // Prisma client is imported as the bare specifier `generated/prisma`.
+    // Removing this breaks `bun build src/app.ts`, which is what produces the
+    // serverless bundle — so the API silently disappears from a deploy.
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
+      // Explicit, rather than relying on baseUrl alone to resolve the bare
+      // specifier, so the mapping survives someone tidying baseUrl away again.
+      "generated/*": ["./generated/*"],
       "@myapp/shared": ["../packages/shared/src/index.ts"],
       "@myapp/shared/*": ["../packages/shared/src/*"]
     }

@@ -260,6 +260,7 @@ export type TProduct = {
         name: string;
         color: string;
         size: string;
+        stock: number;
     }[];
 }
 
