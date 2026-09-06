@@ -91,7 +91,11 @@ export const ProductController = {
     },
     async create(c: Context) {
         const body = c.get("validatedBody") as CreateProduct;
-        const product = await ProductService.create(body, c.get("shopId") as string)
+        const product = await ProductService.create(
+            body,
+            c.get("shopId") as string,
+            c.get("userId") as string,
+        )
 
         return sendSuccess(c, product, "Product created successfully", 201);
     },

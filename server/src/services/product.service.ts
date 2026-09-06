@@ -2,7 +2,7 @@ import prisma from "@/lib/prisma";
 import { normalizeProductName } from "@/lib/product-name-normalizer";
 import type { CreateProduct } from "@myapp/shared/schemas/product.schema";
 import type { PrismaTx, ProductRow, ProductStatus, ProductTableRow } from "@/types";
-import { Prisma } from "generated/prisma";
+import { Prisma, StockDirection, StockMovementType } from "generated/prisma";
 import { AppError } from "@/utils/AppError";
 
 export const ProductService = {
@@ -112,7 +112,7 @@ export const ProductService = {
             },
         });
     },
-    async create(data: CreateProduct, shopId: string) {
+    async create(data: CreateProduct, shopId: string, userId: string) {
         const normalized = normalizeProductName(data.name);
 
         const result = await prisma.$transaction(async (tx) => {
@@ -171,6 +171,57 @@ export const ProductService = {
                 })
 
             )
+
+            // Opening stock is an inventory movement, not just a number on
+            // ProductVariant. Recording it as an adjustment keeps the
+            // append-only ledger and the fast stock_on_hand balance in sync.
+            const openingStock = variants
+                .map((variant, index) => ({
+                    variantId: variant.id,
+                    quantity: data.variants[index]?.stock ?? 0,
+                }))
+                .filter((item) => item.quantity > 0);
+
+            if (openingStock.length > 0) {
+                const adjustment = await tx.stockAdjustment.create({
+                    data: {
+                        shop_id: shopId,
+                        adjusted_by: userId,
+                        reason: "Initial stock",
+                        note: `Opening stock entered when creating ${product.name}`,
+                    },
+                });
+
+                await tx.stockAdjustmentItem.createMany({
+                    data: openingStock.map((item) => ({
+                        adjustment_id: adjustment.id,
+                        variant_id: item.variantId,
+                        direction: StockDirection.IN,
+                        quantity: item.quantity,
+                        note: "Initial stock",
+                    })),
+                });
+
+                await tx.stockLedger.createMany({
+                    data: openingStock.map((item) => ({
+                        adjustment_id: adjustment.id,
+                        variant_id: item.variantId,
+                        type: StockMovementType.ADJUSTMENT,
+                        direction: StockDirection.IN,
+                        quantity: item.quantity,
+                        balance_after: item.quantity,
+                    })),
+                });
+
+                await Promise.all(
+                    openingStock.map((item) =>
+                        tx.productVariant.update({
+                            where: { id: item.variantId },
+                            data: { stock_on_hand: item.quantity },
+                        })
+                    )
+                );
+            }
             return { product, variants };
         });
         return result;

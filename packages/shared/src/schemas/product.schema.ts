@@ -5,6 +5,9 @@ import { zodUUID } from "./helper";
 const productVariant = z.object({
     color: z.string().optional(),
     size: z.string().optional(),
+    // A new product can arrive with stock already on the shelf. Keep this on
+    // the variant because colour/size variants are counted independently.
+    stock: z.number().int("Stock must be a whole number").min(0, "Stock cannot be negative").default(0),
 });
 
 /** Trim to undefined so "  " never counts as a filled attribute. */

@@ -59,7 +59,7 @@ export function ProductModal({
       description: "",
       brand: "",
       category_id: "",
-      variants: [{}],
+      variants: [{ stock: 0 }],
     },
   });
 
@@ -219,7 +219,7 @@ export function ProductModal({
                 <h3 className="font-semibold text-sm">Product Variants</h3>
                 <Button
                   type="button"
-                  onClick={() => append({})}
+                  onClick={() => append({ stock: 0 })}
                   variant="outline"
                   size="sm"
                   className="gap-1"
@@ -284,6 +284,36 @@ export function ProductModal({
                               {...field}
                               value={field.value ?? ""}
                             />
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name={`variants.${index}.stock`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Initial Stock</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                placeholder="0"
+                                {...field}
+                                value={field.value ?? 0}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  if (/^\d*$/.test(value)) {
+                                    field.onChange(value === "" ? 0 : Number(value));
+                                  }
+                                }}
+                              />
+                            </FormControl>
+                            <p className="text-xs text-muted-foreground">
+                              Quantity currently available for this variant.
+                            </p>
                             <FormMessage />
                           </FormItem>
                         )}
