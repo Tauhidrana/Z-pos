@@ -7,7 +7,25 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1"
     />
     <title>zPOS Dashboard - Sabbirs Cloth Store</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Browser tab. The .ico carries 16/32/48/64 for Windows and older
+         browsers; the 32px PNG is what modern ones actually pick up. The mark
+         is transparent so it reads on both light and dark tab bars. -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="256x256" href="/favicon-256.png" />
+
+    <!-- Home-screen install. iOS composites transparency onto black, so this
+         icon ships with an opaque plate rather than an alpha channel. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <meta name="application-name" content="zPOS" />
+    <meta name="apple-mobile-web-app-title" content="zPOS" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- Tints the mobile browser chrome to match the app's header. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#faf4e8" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#24201b" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

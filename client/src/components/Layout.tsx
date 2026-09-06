@@ -5,7 +5,6 @@ import {
   ShoppingCart,
   Package,
   Users,
-  Store,
   CarTaxiFrontIcon,
   PanelRight,
   LogOut,
@@ -104,10 +103,40 @@ function SidebarBody({
   );
 }
 
+/**
+ * Brand lockup for the sidebar and drawer.
+ *
+ * Two artworks rather than one: the wordmark in the master logo is near-black,
+ * which all but disappears on the dark sidebar, so `logo-on-dark.png` carries a
+ * light wordmark. Collapsed, only the Z mark fits — it is orange either way, so
+ * it needs no variant.
+ *
+ * The lockup already reads "Zpos", so it replaces the old icon-plus-"zPOS"
+ * text pair instead of sitting beside a second copy of the name.
+ */
 function BrandMark({ collapsed }: { collapsed: boolean }) {
+  if (collapsed) {
+    return (
+      <img
+        src="/logo-mark.png"
+        alt="zPOS"
+        width={28}
+        height={33}
+        className="h-8 w-auto shrink-0"
+      />
+    );
+  }
+
   return (
-    <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center shrink-0">
-      <Store className={cn("text-white", collapsed ? "w-4 h-4" : "w-4 h-4")} />
+    <div className="min-w-0">
+      <img
+        src="/logo-on-dark.png"
+        alt="zPOS"
+        width={132}
+        height={61}
+        className="h-8 w-auto"
+      />
+      <p className="text-sidebar-foreground/50 text-xs mt-1">Retail Manager</p>
     </div>
   );
 }
@@ -168,12 +197,6 @@ export default function Layout({
           )}
         >
           <BrandMark collapsed={collapsed} />
-          {!collapsed && (
-            <div>
-              <p className="text-sidebar-foreground font-semibold text-sm leading-tight">zPOS</p>
-              <p className="text-sidebar-foreground/50 text-xs">Retail Manager</p>
-            </div>
-          )}
         </div>
         <SidebarBody items={visibleNavItems} collapsed={collapsed} />
       </aside>
@@ -200,10 +223,8 @@ export default function Layout({
           )}
         >
           <div className="flex items-center gap-3 px-4 py-4 border-b border-sidebar-border">
-            <BrandMark collapsed={false} />
             <div className="min-w-0 flex-1">
-              <p className="text-sidebar-foreground font-semibold text-sm leading-tight">zPOS</p>
-              <p className="text-sidebar-foreground/50 text-xs">Retail Manager</p>
+              <BrandMark collapsed={false} />
             </div>
             <button
               type="button"
@@ -245,8 +266,15 @@ export default function Layout({
             <PanelRight />
           </Button>
 
-          {/* On phones the header doubles as the page's identity bar. */}
-          <span className="md:hidden font-semibold truncate">zPOS</span>
+          {/* On phones the header doubles as the page's identity bar. Light
+              surface here, so this uses the master artwork's dark wordmark. */}
+          <img
+            src="/logo.png"
+            alt="zPOS"
+            width={99}
+            height={46}
+            className="md:hidden h-6 w-auto"
+          />
 
           <UserMenu />
         </header>
