@@ -24,6 +24,7 @@ const Purchases = lazy(() => import("@/pages/Purchase"));
 const NewPurchase = lazy(() => import("@/pages/new-purchase"));
 const SalesPage = lazy(() => import("@/pages/Sales"));
 const AdminPage = lazy(() => import("@/pages/Admin"));
+const BarcodeGenerator = lazy(() => import("@/pages/BarcodeGenerator"));
 const Login = lazy(() => import("@/pages/Login"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
@@ -67,10 +68,19 @@ function ProtectedRouter() {
   // Warm the next-most-likely route chunks once we know the user is staying.
   useEffect(() => {
     if (!isSignedIn) return;
-    const schedule =
-      window.requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 1));
-    const handle = schedule(() => prefetchLikelyRoutes());
-    return () => window.cancelIdleCallback?.(handle as number);
+    // Must stay bound to `window` — calling a detached Window method throws
+    // "Illegal invocation" in Chromium.
+    const handle =
+      typeof window.requestIdleCallback === "function"
+        ? window.requestIdleCallback(() => prefetchLikelyRoutes())
+        : window.setTimeout(() => prefetchLikelyRoutes(), 1);
+    return () => {
+      if (typeof window.cancelIdleCallback === "function") {
+        window.cancelIdleCallback(handle as number);
+      } else {
+        window.clearTimeout(handle as number);
+      }
+    };
   }, [isSignedIn]);
 
   // Clerk is still initializing — render nothing to avoid flash
@@ -98,6 +108,7 @@ function ProtectedRouter() {
             <Route path="/purchases" component={Purchases} />
             <Route path="/purchases/new" component={NewPurchase} />
             <Route path="/sales" component={SalesPage} />
+            <Route path="/barcodes" component={BarcodeGenerator} />
             <Route path="/admin">
               {meLoading ? null : isOwner ? <AdminPage /> : <Redirect to="/" />}
             </Route>

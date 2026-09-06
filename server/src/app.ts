@@ -17,6 +17,7 @@ import dashboardRouter from './routes/dashbord.route'
 import customerRouter from './routes/customer.route'
 import analyticsRouter from './routes/analytics.route'
 import adminRouter from './routes/admin.route'
+import labelRouter from './routes/label.route'
 
 import { requireAuth } from './middleware/auth.middleware'
 import { syncUser } from './middleware/authSyncUser.middleware'
@@ -130,6 +131,7 @@ app.route('/api/dashboard', dashboardRouter)
 app.route('/api/analytics', analyticsRouter)
 app.route('/api/customers', customerRouter)
 app.route('/api/admin', adminRouter)
+app.route('/api/labels', labelRouter)
 
 // --- Error Handling ---
 app.onError((err, c) => {

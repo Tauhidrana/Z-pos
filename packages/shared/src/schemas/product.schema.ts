@@ -112,3 +112,15 @@ export const productVariantSchema = z.object({
 });
 
 export type CreateProductVariant = z.infer<typeof productVariantSchema>
+
+
+/**
+ * Body for issuing (or re-resolving) a variant's printable barcode.
+ * Kept separate from `idBodySchema` so the field name matches what the label
+ * generator actually sends, rather than an ambiguous bare `id`.
+ */
+export const issueBarcodeSchema = z.object({
+    variantId: zodUUID,
+});
+
+export type IssueBarcode = z.infer<typeof issueBarcodeSchema>;
