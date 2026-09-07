@@ -163,3 +163,48 @@ describe('dashboard error handling', () => {
         expect(body.success).toBe(false)
     })
 })
+
+describe('GET /api/dashboard/get/overview', () => {
+    it('returns every card in one response', async () => {
+        // Six loaders run concurrently behind this route; the shared $queryRaw
+        // mock answers all of them with the default empty result.
+        mockPrisma.$queryRaw.mockResolvedValue([])
+
+        const res = await get(app, '/api/dashboard/get/overview')
+        expect(res.status).toBe(200)
+
+        const body = await json<ApiResponse<Record<string, unknown>>>(res)
+        expect(body.success).toBe(true)
+        expect(Object.keys(body.data).sort()).toEqual([
+            'categoryGraph',
+            'salesHistory',
+            'statTrend',
+            'stats',
+            'topProducts',
+            'weeklySales',
+        ])
+        // The chart/list cards must be arrays even with no data, because the
+        // dashboard maps over them without a guard.
+        expect(Array.isArray(body.data.categoryGraph)).toBe(true)
+        expect(Array.isArray(body.data.weeklySales)).toBe(true)
+        expect(Array.isArray(body.data.topProducts)).toBe(true)
+        expect(Array.isArray(body.data.salesHistory)).toBe(true)
+    })
+
+    it('zero-fills the week so the chart always gets 7 days', async () => {
+        mockPrisma.$queryRaw.mockResolvedValue([])
+
+        const res = await get(app, '/api/dashboard/get/overview')
+        const body = await json<ApiResponse<{ weeklySales: unknown[] }>>(res)
+        expect(body.data.weeklySales).toHaveLength(7)
+    })
+
+    it('rejects an unknown timeline', async () => {
+        const res = await get(app, '/api/dashboard/get/overview?timeline=forever')
+        expect(res.status).toBe(400)
+
+        const body = await json<{ success: boolean; error: { code: string } }>(res)
+        expect(body.success).toBe(false)
+        expect(body.error.code).toBe('INVALID_TIMELINE')
+    })
+})

@@ -38,38 +38,45 @@ const CategoryBreakdownChart = lazy(() =>
   })),
 );
 
+type DashboardOverview = {
+  stats: DashboardStats;
+  statTrend: DashboardStatTrend;
+  categoryGraph: CategorySalesEntry[];
+  weeklySales: WeeklySalesEntry[];
+  topProducts: TopProductEntry[];
+  salesHistory: DashboardSalesHistory[];
+};
+
 export default function Dashboard() {
-  const { data: incomeStats } = useGetData<{
-    data: DashboardStats;
-  }>("/dashboard/get/stats");
-  const { data: incomeStatTrend } = useGetData<{ data: DashboardStatTrend }>(
-    "/dashboard/get/stat-trend",
+  // One request for the whole screen.
+  //
+  // This used to be six `useGetData` calls against six endpoints. The browser
+  // caps concurrent connections, each one re-verified the same token, and on a
+  // serverless deployment each could land on its own cold instance — so the
+  // page settled at the speed of the slowest of six independent round-trips,
+  // and the cards popped in one at a time in whatever order they finished.
+  // The server runs the same six queries concurrently behind `/get/overview`.
+  const { data, isPending } = useGetData<{ data: DashboardOverview }>(
+    "/dashboard/get/overview",
+    ["dashboard", "overview"],
   );
-  const { data: incomeCategoryGraph, isFetching: isCategoryGraphFetching } = useGetData<{
-    data: CategorySalesEntry[];
-  }>("/dashboard/get/category-graph");
-  const { data: incomeWeeklySalesGraph, isFetching: isWeeklySalesFetching } = useGetData<{
-    data: WeeklySalesEntry[];
-  }>("/dashboard/get/weekly-sales-graph");
 
-  const { data: incomeTopProducts, isFetching: incomeTopProductsFetching } =
-    useGetData<{
-      data: TopProductEntry[];
-    }>("/dashboard/get/top-products");
+  const overview = data?.data;
+  const satatData = overview?.stats;
+  const statTrendData = overview?.statTrend;
+  const categoryGraphData = overview?.categoryGraph;
+  const weeklySalesGraphData = overview?.weeklySales;
+  const topProductsData = overview?.topProducts;
+  const salesHistoryData = overview?.salesHistory;
 
-  const { data: incomeSalesHistory, isFetching: incomeSalesHistoryFetching } =
-    useGetData<{
-      data: {
-        data: DashboardSalesHistory[];
-      };
-    }>("/dashboard/get/sales-history");
-
-  const satatData = incomeStats?.data;
-  const statTrendData = incomeStatTrend?.data;
-  const categoryGraphData = incomeCategoryGraph?.data;
-  const weeklySalesGraphData = incomeWeeklySalesGraph?.data;
-  const topProductsData = incomeTopProducts?.data;
-  const salesHistoryData = incomeSalesHistory?.data.data;
+  // A single request means a single loading state: the cards now fill in
+  // together rather than racing each other. `isPending` (not `isFetching`) so a
+  // background refresh keeps the current numbers on screen instead of blanking
+  // the dashboard back to skeletons.
+  const isCategoryGraphFetching = isPending;
+  const isWeeklySalesFetching = isPending;
+  const incomeTopProductsFetching = isPending;
+  const incomeSalesHistoryFetching = isPending;
 
   const stats = [
     {
@@ -127,29 +134,41 @@ export default function Dashboard() {
           <Card key={stat.label}>
             <CardContent className="p-4 sm:p-5">
               <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-xs sm:text-sm text-muted-foreground leading-tight">
                     {stat.label}
                   </p>
-                  <p className="font-serif text-xl sm:text-2xl font-semibold text-foreground mt-1 break-all">
-                    {stat.value}
-                  </p>
-                  <div className="flex items-center gap-1 mt-1.5">
-                    {stat.up ? (
-                      <TrendingUp className="w-3.5 h-3.5 text-success" />
-                    ) : (
-                      <TrendingDown className="w-3.5 h-3.5 text-destructive" />
-                    )}
-                    <span
-                      className={`font-mono text-xs font-medium ${stat.up ? "text-success" : "text-destructive"}`}
-                    >
-                      {stat.change}
-                    </span>
-                    {/* Half-width stat cards have no room for this. */}
-                    <span className="hidden sm:inline text-xs text-muted-foreground">
-                      vs yesterday
-                    </span>
-                  </div>
+                  {/* Until the numbers land, show their shape rather than a
+                      confident "৳0" and a red "0.00%" — a zero that is really
+                      "not loaded yet" reads as a bad trading day. */}
+                  {isPending ? (
+                    <>
+                      <Skeleton className="h-7 w-24 mt-1.5" />
+                      <Skeleton className="h-3.5 w-16 mt-2" />
+                    </>
+                  ) : (
+                    <>
+                      <p className="font-serif text-xl sm:text-2xl font-semibold text-foreground mt-1 break-all">
+                        {stat.value}
+                      </p>
+                      <div className="flex items-center gap-1 mt-1.5">
+                        {stat.up ? (
+                          <TrendingUp className="w-3.5 h-3.5 text-success" />
+                        ) : (
+                          <TrendingDown className="w-3.5 h-3.5 text-destructive" />
+                        )}
+                        <span
+                          className={`font-mono text-xs font-medium ${stat.up ? "text-success" : "text-destructive"}`}
+                        >
+                          {stat.change}
+                        </span>
+                        {/* Half-width stat cards have no room for this. */}
+                        <span className="hidden sm:inline text-xs text-muted-foreground">
+                          vs yesterday
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="hidden sm:block p-2.5 rounded-xl bg-accent text-accent-foreground shrink-0">
                   <stat.icon className="w-5 h-5" />

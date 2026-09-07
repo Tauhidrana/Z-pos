@@ -63,6 +63,47 @@ const SCAN_TAB = {
   icon: ScanLine,
 };
 
+/**
+ * The route chunk behind each nav destination, so hovering a link can start
+ * downloading the page before the click lands.
+ *
+ * Every page is lazily loaded (see App.tsx), which keeps the first load small
+ * but means each first visit to a section pauses on a spinner while its chunk
+ * is fetched. A pointer resting on a link is a reliable signal that the click
+ * is coming, and on a desktop that is typically 200-300ms of head start — long
+ * enough that the chunk is usually already parsed by the time the route
+ * changes, so the navigation renders immediately instead of flashing a spinner.
+ *
+ * `void` on each import: we want the fetch started and the module cached by the
+ * bundler's registry, and nothing here needs the result. A failure is
+ * deliberately ignored — the real navigation will retry and surface it.
+ */
+const ROUTE_CHUNKS: Record<string, () => Promise<unknown>> = {
+  "/": () => import("@/pages/Dashboard"),
+  "/pos": () => import("@/pages/PointOfSale"),
+  "/products": () => import("@/pages/Products"),
+  "/purchases": () => import("@/pages/Purchase"),
+  "/customers": () => import("@/pages/Customers"),
+  "/sales": () => import("@/pages/Sales"),
+  "/store": () => import("@/pages/store/OnlineStore"),
+  "/barcodes": () => import("@/pages/BarcodeGenerator"),
+  "/admin": () => import("@/pages/Admin"),
+};
+
+/** Paths already warmed, so a hovered link only ever fetches once. */
+const prefetched = new Set<string>();
+
+function prefetchRoute(path: string): void {
+  if (prefetched.has(path)) return;
+  const load = ROUTE_CHUNKS[path];
+  if (!load) return;
+  prefetched.add(path);
+  void load().catch(() => {
+    // Let the real navigation report it; allow a retry then.
+    prefetched.delete(path);
+  });
+}
+
 function NavItem({
   path,
   label,
@@ -81,6 +122,10 @@ function NavItem({
   return (
     <Link href={path} onClick={onNavigate}>
       <div
+        // pointerenter covers mouse and pen; touchstart is the phone
+        // equivalent, firing on finger-down a beat before the tap completes.
+        onPointerEnter={() => prefetchRoute(path)}
+        onTouchStart={() => prefetchRoute(path)}
         className={cn(
           "flex items-center gap-3 px-3 py-3 md:py-2.5 rounded-lg cursor-pointer transition-all duration-150 group relative",
           isActive
@@ -382,6 +427,11 @@ function BottomTab({
   return (
     <Link href={href} className="flex-1">
       <span
+        // Same head start as the sidebar links. `href` can carry a query
+        // string (Scan is "/sales?scan=1"), and the chunk map is keyed by
+        // pathname, so strip it before looking up.
+        onTouchStart={() => prefetchRoute(href.split("?")[0] as string)}
+        onPointerEnter={() => prefetchRoute(href.split("?")[0] as string)}
         className={cn(
           "flex h-full flex-col items-center justify-center gap-0.5 py-2 transition-colors",
           isActive ? "text-primary" : "text-muted-foreground",

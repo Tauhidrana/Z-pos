@@ -28,10 +28,37 @@
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#24201b" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- Fonts, loaded without blocking the first paint.
+         A plain <link rel="stylesheet"> to Google Fonts is render-blocking:
+         the browser will not paint a single pixel until it has resolved
+         fonts.googleapis.com, fetched the CSS, and then fetched the font files
+         it names. On a slow mobile connection that is most of the time to
+         first paint, spent before any of our own code has run.
+
+         `media="print"` makes it a non-blocking fetch; the onload swap applies
+         it the moment it arrives. Every family already has a real fallback in
+         --app-font-* (see index.css) and the URL carries display=swap, so the
+         UI paints immediately in the system face and re-renders in Work Sans /
+         Fraunces a moment later.
+
+         The weight list is deliberately unchanged: `font-bold` is used in 42
+         places on the sans face, and several `font-serif` elements inherit
+         their weight rather than setting it, so every listed weight is really
+         rendered. Dropping any of them would only make the browser synthesise
+         a fake bold. -->
     <link
       href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all';this.onload=null"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
   </head>
   <body>
     <div id="root"></div>

@@ -44,34 +44,51 @@ export const ProductService = {
         // column, kept in sync with the ledger on every write. Deriving it here
         // with DISTINCT ON over stock_ledgers meant scanning every stock
         // movement ever recorded on each keystroke of a POS search.
+        //
+        // `shop_products` is materialised first and `product_stock` joins to
+        // it. Without that join the aggregate grouped EVERY active variant in
+        // the database — all tenants — before a single row was filtered to this
+        // shop, so one merchant's search got slower as unrelated merchants
+        // added stock. Now it walks `products(shop_id)` and touches only this
+        // shop's variants via `product_variants(product_id)`.
         const rows = await tx.$queryRaw<ProductRow[]>(Prisma.sql`
-        WITH product_stock AS (
-            SELECT
-                pv.product_id,
-                COALESCE(SUM(pv.stock_on_hand), 0)::INT AS total_stock,
-                COUNT(pv.id)::INT                       AS total_variants
-            FROM product_variants pv
-            WHERE pv.is_active = true
-            GROUP BY pv.product_id
-        ),
-        computed AS (
+        WITH shop_products AS (
             SELECT
                 p.id,
                 p.name,
                 p.reorder_level,
                 p.is_active,
+                p.category_id
+            FROM products p
+            WHERE p.is_active = true AND p.shop_id = ${shopId}
+        ),
+        product_stock AS (
+            SELECT
+                pv.product_id,
+                COALESCE(SUM(pv.stock_on_hand), 0)::INT AS total_stock,
+                COUNT(pv.id)::INT                       AS total_variants
+            FROM product_variants pv
+            JOIN shop_products sp ON sp.id = pv.product_id
+            WHERE pv.is_active = true
+            GROUP BY pv.product_id
+        ),
+        computed AS (
+            SELECT
+                sp.id,
+                sp.name,
+                sp.reorder_level,
+                sp.is_active,
                 c.name                          AS category,
                 COALESCE(ps.total_stock, 0)     AS stock,
                 COALESCE(ps.total_variants, 0)  AS variants,
                 CASE
                     WHEN COALESCE(ps.total_stock, 0) = 0                        THEN 'OUT_OF_STOCK'
-                    WHEN COALESCE(ps.total_stock, 0) <= p.reorder_level         THEN 'LOW_STOCK'
+                    WHEN COALESCE(ps.total_stock, 0) <= sp.reorder_level        THEN 'LOW_STOCK'
                     ELSE 'IN_STOCK'
                 END                             AS computed_status
-            FROM products p
-            INNER JOIN categories c ON c.id = p.category_id
-            LEFT JOIN  product_stock ps ON ps.product_id = p.id
-            WHERE p.is_active = true AND p.shop_id = ${shopId}
+            FROM shop_products sp
+            INNER JOIN categories c ON c.id = sp.category_id
+            LEFT JOIN  product_stock ps ON ps.product_id = sp.id
         )
         SELECT
             id,

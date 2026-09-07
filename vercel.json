@@ -46,6 +46,30 @@
           "value": "public, max-age=31536000, immutable"
         }
       ]
+    },
+    {
+      "source": "/(.*)\\.(png|ico|svg|webp|woff2)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=604800, stale-while-revalidate=86400"
+        }
+      ]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
+        }
+      ]
     }
-  ]
+  ],
+  "functions": {
+    "api/[...route].ts": {
+      "memory": 2048,
+      "maxDuration": 30
+    }
+  }
 }

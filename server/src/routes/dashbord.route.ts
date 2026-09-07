@@ -4,6 +4,10 @@ import { DashboardController } from "@/controllers/dashboard.controller";
 const dashboardRouter = new Hono();
 
 
+// One request for the whole dashboard. The per-card routes below are kept
+// for anything that needs to refresh a single card on its own.
+dashboardRouter.get("/get/overview", DashboardController.getDashboardOverview);
+
 dashboardRouter.get("/get/stats", DashboardController.getDashboardStats);
 dashboardRouter.get("/get/stat-trend", DashboardController.getDashboardStatTrend);
 dashboardRouter.get("/get/category-graph", DashboardController.getDashboardCategoryGraph);
