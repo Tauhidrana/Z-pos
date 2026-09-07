@@ -1,4 +1,4 @@
-# zPOS
+# Zpos
 
 > A multi-tenant retail operating system for point-of-sale, inventory, purchasing, customer management, analytics, and online storefronts.
 
