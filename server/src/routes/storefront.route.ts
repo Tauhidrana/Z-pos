@@ -17,6 +17,7 @@ const storefrontRouter = new Hono<AppEnv>();
 
 storefrontRouter.get("/:slug", StorefrontController.getHome);
 storefrontRouter.get("/:slug/categories", StorefrontController.getCategories);
+storefrontRouter.get("/:slug/policies", StorefrontController.getPolicies);
 storefrontRouter.get("/:slug/products", StorefrontController.getProducts);
 storefrontRouter.get("/:slug/products/:productSlug", StorefrontController.getProduct);
 storefrontRouter.post("/:slug/orders", validate(placeOrderSchema), StorefrontController.placeOrder);

@@ -5,6 +5,7 @@ import {
     ArrowRight,
     CheckCircle2,
     Globe,
+    Images,
     Loader2,
     Package,
     Settings,
@@ -157,6 +158,18 @@ function StoreOverview({ store }: { store: MerchantStore }) {
                     icon={Package}
                     title="Products online"
                     description="Choose what appears, add photos and set online prices"
+                />
+                <QuickLink
+                    href="/store/banners"
+                    icon={Images}
+                    title="Banners"
+                    description="The slides at the top of your shop front"
+                />
+                <QuickLink
+                    href="/store/settings"
+                    icon={Settings}
+                    title="Store settings"
+                    description="Contact details, delivery charges, policies and SEO"
                 />
             </div>
         </div>

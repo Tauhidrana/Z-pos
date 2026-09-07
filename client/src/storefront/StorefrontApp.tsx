@@ -33,6 +33,7 @@ const CartPage = lazy(() => import("./pages/cart"));
 const CheckoutPage = lazy(() => import("./pages/checkout"));
 const CategoriesPage = lazy(() => import("./pages/categories"));
 const StoreHomePage = lazy(() => import("./pages/home"));
+const PolicyPage = lazy(() => import("./pages/policy"));
 
 // Storefront traffic is anonymous and read-heavy, and a shopper flicking
 // between the grid and a product should not refetch the catalog each time.
@@ -104,7 +105,12 @@ function StorefrontRoot({ slug, basePath }: { slug: string; basePath: string }) 
                 subtree, so every button, ring and badge below picks it up
                 without a single component knowing about themes. */}
             <div style={accent}>
-                <StoreShell store={store} categories={data.categories} basePath={basePath}>
+                <StoreShell
+                    store={store}
+                    categories={data.categories}
+                    policies={data.policies}
+                    basePath={basePath}
+                >
                     <Suspense fallback={<RouteFallback />}>
                         <Switch>
                             <Route path="/">
@@ -138,6 +144,22 @@ function StorefrontRoot({ slug, basePath }: { slug: string; basePath: string }) 
                                         productSlug={params.productSlug}
                                     />
                                 )}
+                            </Route>
+
+                            {/* Policy pages. Each renders whatever the merchant
+                                published, and says so plainly when they have
+                                published nothing. */}
+                            <Route path="/delivery">
+                                <PolicyPage slug={slug} store={store} kind="deliveryInfo" />
+                            </Route>
+                            <Route path="/returns">
+                                <PolicyPage slug={slug} store={store} kind="returnPolicy" />
+                            </Route>
+                            <Route path="/terms">
+                                <PolicyPage slug={slug} store={store} kind="terms" />
+                            </Route>
+                            <Route path="/privacy">
+                                <PolicyPage slug={slug} store={store} kind="privacyPolicy" />
                             </Route>
 
                             <Route path="/cart">

@@ -50,6 +50,8 @@ type Variant = {
   size?: string | null;
   isActive: boolean;
   stock?: number;
+  /** Shelf price, or null when this variant has never been priced. */
+  sellPrice?: number | null;
 };
 
 type DetailsFormValues = {
@@ -427,6 +429,8 @@ function VariantsSection({
         id: variant.id,
         color: variant.color,
         size: variant.size,
+        // null clears the price; the card only ever sends a number or null.
+        sell_price: variant.sellPrice ?? null,
       },
       {
         onSuccess: () => {
@@ -470,7 +474,13 @@ function VariantsSection({
     createVariant(
       {
         productId: product.id,
-        ...variant,
+        color: variant.color,
+        size: variant.size,
+        stock: variant.stock ?? 0,
+        // Omitted rather than sent as null: the create schema takes an optional
+        // price, and "not priced" is the absence of one.
+        ...(variant.sellPrice !== null &&
+          variant.sellPrice !== undefined && { sell_price: variant.sellPrice }),
       },
       {
         onSuccess: () => {
@@ -594,15 +604,33 @@ function VariantCard({
   const [isEditing, setIsEditing] = useState(false);
   const [color, setColor] = useState(variant.color ?? "");
   const [size, setSize] = useState(variant.size ?? "");
+  // Held as a string so the field can be empty, and so a half-typed "120."
+  // survives the keystroke that produced it.
+  const [price, setPrice] = useState(
+    variant.sellPrice === null || variant.sellPrice === undefined
+      ? ""
+      : String(variant.sellPrice),
+  );
 
   function handleSave() {
-    onSave({ ...variant, color, size });
+    const trimmed = price.trim();
+    onSave({
+      ...variant,
+      color,
+      size,
+      sellPrice: trimmed === "" ? null : Number(trimmed),
+    });
     setIsEditing(false);
   }
 
   function handleCancel() {
     setColor(variant.color ?? "");
     setSize(variant.size ?? "");
+    setPrice(
+      variant.sellPrice === null || variant.sellPrice === undefined
+        ? ""
+        : String(variant.sellPrice),
+    );
     setIsEditing(false);
   }
 
@@ -672,9 +700,24 @@ function VariantCard({
         </div>
       </div>
 
-      <p className="text-sm text-muted-foreground">
-        Stock: <span className="font-medium text-foreground">{variant.stock ?? 0}</span>
-      </p>
+      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+        <p>
+          Stock:{" "}
+          <span className="font-medium text-foreground">{variant.stock ?? 0}</span>
+        </p>
+        <p>
+          Price:{" "}
+          {variant.sellPrice === null || variant.sellPrice === undefined ? (
+            // Named rather than shown as ৳0, which reads as free. An unpriced
+            // variant is withheld by both the till and the storefront.
+            <span className="font-medium text-amber-600">Not set</span>
+          ) : (
+            <span className="font-mono font-medium text-foreground">
+              ৳{variant.sellPrice.toLocaleString("en-BD")}
+            </span>
+          )}
+        </p>
+      </div>
 
       {/* Edit fields — shown only when editing */}
       {isEditing && (
@@ -698,6 +741,30 @@ function VariantCard({
                 className="h-8 text-sm"
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">
+              Selling price (৳)
+            </label>
+            <Input
+              value={price}
+              inputMode="decimal"
+              onChange={(e) => {
+                const next = e.target.value;
+                // Same rule as the create form: allow empty and a trailing
+                // decimal point while typing, reject anything else outright
+                // rather than coercing it to NaN.
+                if (!/^\d*\.?\d{0,2}$/.test(next)) return;
+                setPrice(next);
+              }}
+              placeholder="0.00"
+              className="h-8 text-sm font-mono"
+            />
+            <p className="text-xs text-muted-foreground">
+              Leave empty to mark this variant as not yet priced. A later
+              purchase overwrites this with that batch&rsquo;s price.
+            </p>
           </div>
 
           <div className="flex items-center justify-end gap-2">
@@ -739,13 +806,21 @@ function AddVariantForm({
 }) {
   const [color, setColor] = useState("");
   const [size, setSize] = useState("");
+  const [stock, setStock] = useState("");
+  const [price, setPrice] = useState("");
 
   function handleSubmit() {
     if (!color && !size) {
       toast.error("Enter at least a color or size");
       return;
     }
-    onSave({ color, size, isActive: true });
+    onSave({
+      color,
+      size,
+      isActive: true,
+      stock: stock.trim() === "" ? 0 : Number(stock),
+      sellPrice: price.trim() === "" ? null : Number(price),
+    });
   }
 
   return (
@@ -768,7 +843,40 @@ function AddVariantForm({
             placeholder="e.g. S, M, L, XL"
           />
         </div>
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground">Opening stock</label>
+          <Input
+            value={stock}
+            inputMode="numeric"
+            onChange={(e) => {
+              const next = e.target.value;
+              if (/^\d*$/.test(next)) setStock(next);
+            }}
+            placeholder="0"
+            className="font-mono"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground">
+            Selling price (৳)
+          </label>
+          <Input
+            value={price}
+            inputMode="decimal"
+            onChange={(e) => {
+              const next = e.target.value;
+              if (!/^\d*\.?\d{0,2}$/.test(next)) return;
+              setPrice(next);
+            }}
+            placeholder="0.00"
+            className="font-mono"
+          />
+        </div>
       </div>
+      <p className="text-xs text-muted-foreground">
+        Without a price this variant cannot be sold at the counter or shown in
+        your online store. You can set it later.
+      </p>
       <div className="flex items-center justify-end gap-2">
         <Button
           variant="ghost"

@@ -335,3 +335,353 @@ describe('DELETE /api/products/delete', () => {
         expect(mockPrisma.product.delete.mock.calls.length).toBe(0)
     })
 })
+
+// ── Variant price ────────────────────────────────────────────────────────────
+//
+// The shelf price used to be write-once: it could be typed when creating a
+// product and then never seen or changed on any screen.
+
+const VARIANT_ID = '550e8400-e29b-41d4-a716-446655440050'
+
+describe('GET /api/products/get/:id — price', () => {
+    it('returns the shelf price instead of dropping it', async () => {
+        mockPrisma.product.findFirst.mockResolvedValueOnce({
+            ...MOCK_PRODUCT,
+            variants: [
+                {
+                    id: VARIANT_ID,
+                    name: 'Red',
+                    is_active: true,
+                    color: 'red',
+                    size: null,
+                    stock_on_hand: 4,
+                    last_sell_price: 150,
+                },
+            ],
+        })
+
+        const res = await get(app, `/api/products/get/${MOCK_PRODUCT.id}`)
+        expect(res.status).toBe(200)
+
+        const body = await json<ApiResponse<any>>(res)
+        expect(body.data.variants[0].sellPrice).toBe(150)
+    })
+
+    it('reports an unpriced variant as null, not as zero', async () => {
+        mockPrisma.product.findFirst.mockResolvedValueOnce({
+            ...MOCK_PRODUCT,
+            variants: [
+                {
+                    id: VARIANT_ID,
+                    name: 'Red',
+                    is_active: true,
+                    color: 'red',
+                    size: null,
+                    stock_on_hand: 4,
+                    last_sell_price: null,
+                },
+            ],
+        })
+
+        const res = await get(app, `/api/products/get/${MOCK_PRODUCT.id}`)
+        const body = await json<ApiResponse<any>>(res)
+
+        // Zero would read as free on every screen that renders it.
+        expect(body.data.variants[0].sellPrice).toBeNull()
+    })
+})
+
+describe('PATCH /api/products/variants/update', () => {
+    function variantExists(overrides: Record<string, unknown> = {}) {
+        mockPrisma.productVariant.findFirst.mockResolvedValueOnce({
+            id: VARIANT_ID,
+            color: 'red',
+            size: 'M',
+            ...overrides,
+        })
+    }
+
+    it('changes the price on its own', async () => {
+        variantExists()
+
+        const res = await patch(app, '/api/products/variants/update', {
+            id: VARIANT_ID,
+            sell_price: 250,
+        })
+
+        expect(res.status).toBe(200)
+        const data = mockPrisma.productVariant.update.mock.calls[0]?.[0].data
+        expect(Number(data.last_sell_price)).toBe(250)
+    })
+
+    it('accepts a price-only edit on a variant with no colour or size', async () => {
+        // The old guard demanded a colour or size on every call, so a plain
+        // product — the "Miniket Rice 5kg" case — could never be repriced.
+        variantExists({ color: null, size: null })
+
+        const res = await patch(app, '/api/products/variants/update', {
+            id: VARIANT_ID,
+            sell_price: 80,
+        })
+
+        expect(res.status).toBe(200)
+    })
+
+    it('clears the price when sent null', async () => {
+        variantExists()
+
+        const res = await patch(app, '/api/products/variants/update', {
+            id: VARIANT_ID,
+            sell_price: null,
+        })
+
+        expect(res.status).toBe(200)
+        expect(
+            mockPrisma.productVariant.update.mock.calls[0]?.[0].data.last_sell_price,
+        ).toBeNull()
+    })
+
+    it('does not touch the price when renaming a colour', async () => {
+        variantExists()
+
+        await patch(app, '/api/products/variants/update', {
+            id: VARIANT_ID,
+            color: 'blue',
+        })
+
+        const data = mockPrisma.productVariant.update.mock.calls[0]?.[0].data
+        expect('last_sell_price' in data).toBe(false)
+    })
+
+    it('builds a label from both attributes, not "RED / "', async () => {
+        variantExists({ color: 'red', size: null })
+
+        await patch(app, '/api/products/variants/update', {
+            id: VARIANT_ID,
+            color: 'blue',
+        })
+
+        // The old builder interpolated both unconditionally and produced a
+        // trailing separator whenever one attribute was missing.
+        expect(mockPrisma.productVariant.update.mock.calls[0]?.[0].data.name).toBe('blue')
+    })
+
+    it('keeps the untouched attribute in the label', async () => {
+        variantExists({ color: 'red', size: 'M' })
+
+        await patch(app, '/api/products/variants/update', {
+            id: VARIANT_ID,
+            color: 'blue',
+        })
+
+        expect(mockPrisma.productVariant.update.mock.calls[0]?.[0].data.name).toBe('M - blue')
+    })
+
+    it('rejects an empty edit', async () => {
+        const res = await patch(app, '/api/products/variants/update', { id: VARIANT_ID })
+        expect(res.status).toBe(400)
+    })
+
+    it('404s a variant belonging to another shop', async () => {
+        mockPrisma.productVariant.findFirst.mockResolvedValueOnce(null)
+
+        const res = await patch(app, '/api/products/variants/update', {
+            id: VARIANT_ID,
+            sell_price: 250,
+        })
+
+        expect(res.status).toBe(404)
+        expect(mockPrisma.productVariant.findFirst.mock.calls[0]?.[0].where.product.shop_id)
+            .toBe('test-shop-uuid')
+    })
+
+    it('rejects a negative price', async () => {
+        const res = await patch(app, '/api/products/variants/update', {
+            id: VARIANT_ID,
+            sell_price: -5,
+        })
+        expect(res.status).toBe(422)
+    })
+
+    it('rejects more than two decimal places', async () => {
+        const res = await patch(app, '/api/products/variants/update', {
+            id: VARIANT_ID,
+            sell_price: 10.999,
+        })
+        expect(res.status).toBe(422)
+    })
+})
+
+describe('POST /api/products/variants/create', () => {
+    const PRODUCT_ID = '550e8400-e29b-41d4-a716-446655440051'
+
+    function productExists() {
+        mockPrisma.product.findFirst.mockResolvedValueOnce({
+            id: PRODUCT_ID,
+            name: 'Shirt',
+        })
+    }
+
+    it('stores the price and opening stock', async () => {
+        productExists()
+        mockPrisma.productVariant.create.mockResolvedValueOnce({ id: 'new-variant' })
+        mockPrisma.stockAdjustment.create.mockResolvedValueOnce({ id: 'adj-1' })
+
+        const res = await post(app, '/api/products/variants/create', {
+            productId: PRODUCT_ID,
+            color: 'Red',
+            stock: 7,
+            sell_price: 950,
+        })
+
+        expect(res.status).toBe(201)
+        const data = mockPrisma.productVariant.create.mock.calls[0]?.[0].data
+        expect(data.stock_on_hand).toBe(7)
+        expect(Number(data.last_sell_price)).toBe(950)
+    })
+
+    it('labels a colour-only variant by its colour, not "RED / Shirt"', async () => {
+        productExists()
+        mockPrisma.productVariant.create.mockResolvedValueOnce({ id: 'new-variant' })
+
+        await post(app, '/api/products/variants/create', {
+            productId: PRODUCT_ID,
+            color: 'Red',
+        })
+
+        // The old builder substituted the product name for a missing attribute.
+        expect(mockPrisma.productVariant.create.mock.calls[0]?.[0].data.name).toBe('Red')
+    })
+
+    it('records opening stock through the ledger, not as a bare column write', async () => {
+        productExists()
+        mockPrisma.productVariant.create.mockResolvedValueOnce({ id: 'new-variant' })
+        mockPrisma.stockAdjustment.create.mockResolvedValueOnce({ id: 'adj-1' })
+
+        await post(app, '/api/products/variants/create', {
+            productId: PRODUCT_ID,
+            color: 'Red',
+            stock: 7,
+        })
+
+        // Stock that appears on a variant without a ledger entry behind it is
+        // stock the append-only history cannot explain.
+        const ledger = mockPrisma.stockLedger.create.mock.calls[0]?.[0].data
+        expect(ledger.quantity).toBe(7)
+        expect(ledger.balance_after).toBe(7)
+        expect(ledger.adjustment_id).toBe('adj-1')
+    })
+
+    it('writes no adjustment when the variant opens with no stock', async () => {
+        productExists()
+        mockPrisma.productVariant.create.mockResolvedValueOnce({ id: 'new-variant' })
+
+        await post(app, '/api/products/variants/create', {
+            productId: PRODUCT_ID,
+            color: 'Red',
+        })
+
+        expect(mockPrisma.stockAdjustment.create.mock.calls.length).toBe(0)
+        expect(mockPrisma.stockLedger.create.mock.calls.length).toBe(0)
+    })
+
+    it('404s a product belonging to another shop', async () => {
+        mockPrisma.product.findFirst.mockResolvedValueOnce(null)
+
+        const res = await post(app, '/api/products/variants/create', {
+            productId: PRODUCT_ID,
+            color: 'Red',
+        })
+
+        expect(res.status).toBe(404)
+        expect(mockPrisma.productVariant.create.mock.calls.length).toBe(0)
+    })
+})
+
+describe('GET cart item — pricing without a purchase batch', () => {
+    it('falls back to the shelf price when the product has no allocation', async () => {
+        mockPrisma.variantBarcodeAllocation.findFirst.mockResolvedValueOnce(null)
+        mockPrisma.productVariant.findFirst.mockResolvedValueOnce({
+            id: VARIANT_ID,
+            name: 'Red',
+            stock_on_hand: 4,
+            last_sell_price: 150,
+            product: { name: 'T-Shirt' },
+        })
+
+        const res = await get(app, `/api/products/get/${MOCK_PRODUCT.id}/cart-item`)
+        expect(res.status).toBe(200)
+
+        const body = await json<ApiResponse<any>>(res)
+        expect(body.data.price).toBe(150)
+        expect(body.data.variantId).toBe(VARIANT_ID)
+        // Nothing was scanned, so the line carries no barcode.
+        expect(body.data.barcode).toBeUndefined()
+    })
+
+    it('explains an unpriced product rather than saying "no active stock"', async () => {
+        mockPrisma.variantBarcodeAllocation.findFirst.mockResolvedValueOnce(null)
+        mockPrisma.productVariant.findFirst.mockResolvedValueOnce(null)
+
+        const res = await get(app, `/api/products/get/${MOCK_PRODUCT.id}/cart-item`)
+        expect(res.status).toBe(404)
+
+        const body = await json<{ error: { code: string } }>(res)
+        expect(body.error.code).toBe('NO_PRICE')
+    })
+
+    it('still prefers the batch price when a barcode allocation exists', async () => {
+        mockPrisma.variantBarcodeAllocation.findFirst.mockResolvedValueOnce({
+            barcode: { code: '2001000000017' },
+            purchaseItem: { sell_price: 20 },
+            variant: {
+                id: VARIANT_ID,
+                name: 'Red',
+                stock_on_hand: 4,
+                product: { name: 'T-Shirt' },
+            },
+        })
+
+        const res = await get(app, `/api/products/get/${MOCK_PRODUCT.id}/cart-item`)
+        const body = await json<ApiResponse<any>>(res)
+
+        expect(body.data.price).toBe(20)
+        expect(body.data.barcode).toBe('2001000000017')
+        // The fallback must not run when a batch answered.
+        expect(mockPrisma.productVariant.findFirst.mock.calls.length).toBe(0)
+    })
+
+    it('falls back for a specific variant too', async () => {
+        mockPrisma.variantBarcodeAllocation.findFirst.mockResolvedValueOnce(null)
+        mockPrisma.productVariant.findFirst.mockResolvedValueOnce({
+            id: VARIANT_ID,
+            name: 'Blue',
+            stock_on_hand: 2,
+            last_sell_price: 300,
+            product: { name: 'T-Shirt' },
+        })
+
+        const res = await get(app, `/api/products/get/variants/${VARIANT_ID}/cart-item`)
+        expect(res.status).toBe(200)
+
+        const body = await json<ApiResponse<any>>(res)
+        expect(body.data.price).toBe(300)
+    })
+
+    it('refuses an unpriced variant instead of ringing up zero', async () => {
+        mockPrisma.variantBarcodeAllocation.findFirst.mockResolvedValueOnce(null)
+        mockPrisma.productVariant.findFirst.mockResolvedValueOnce({
+            id: VARIANT_ID,
+            name: 'Blue',
+            stock_on_hand: 2,
+            last_sell_price: null,
+            product: { name: 'T-Shirt' },
+        })
+
+        const res = await get(app, `/api/products/get/variants/${VARIANT_ID}/cart-item`)
+        expect(res.status).toBe(404)
+
+        const body = await json<{ error: { code: string } }>(res)
+        expect(body.error.code).toBe('NO_PRICE')
+    })
+})

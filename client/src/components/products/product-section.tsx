@@ -255,6 +255,10 @@ export default function ProductSection({
                           </span>
                         </span>
                         <span className="text-muted-foreground">
+                          Price{" "}
+                          <PriceRange min={p.priceMin} max={p.priceMax} />
+                        </span>
+                        <span className="text-muted-foreground">
                           Variants{" "}
                           <span className="text-foreground font-medium">
                             {p.variants}
@@ -311,6 +315,9 @@ export default function ProductSection({
                     Stock
                   </th>
                   <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">
+                    Price
+                  </th>
+                  <th className="text-left text-xs font-medium text-muted-foreground px-4 py-3">
                     Status
                   </th>
                   <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3">
@@ -353,6 +360,9 @@ export default function ProductSection({
                           {p.stock}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-sm">
+                        <PriceRange min={p.priceMin} max={p.priceMax} />
+                      </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={p.status} />
                       </td>
@@ -379,7 +389,7 @@ export default function ProductSection({
                   !products?.length &&
                   Array.from({ length: 10 }).map((_, i) => (
                     <tr key={i} className="hover:bg-muted/20 transition-colors">
-                      {Array.from({ length: 6 }).map((_, idx) => (
+                      {Array.from({ length: 7 }).map((_, idx) => (
                         <td key={idx} className="px-4 py-3">
                           <Skeleton className="h-4 w-20" />
                         </td>
@@ -405,5 +415,26 @@ export default function ProductSection({
         totalPages={totalPages}
       />
     </section>
+  );
+}
+
+/**
+ * A product's price as one figure, or a range when its variants disagree.
+ *
+ * "Not set" rather than ৳0 for an unpriced product: zero reads as free, while
+ * the truth is that nothing under it has been priced yet — and both the till
+ * and the storefront withhold it until something is.
+ */
+function PriceRange({ min, max }: { min: number | null; max: number | null }) {
+  if (min === null || max === null) {
+    return <span className="text-amber-600 font-medium">Not set</span>;
+  }
+
+  const fmt = (n: number) => `৳${n.toLocaleString("en-BD")}`;
+
+  return (
+    <span className="text-foreground font-medium font-mono">
+      {min === max ? fmt(min) : `${fmt(min)} – ${fmt(max)}`}
+    </span>
   );
 }

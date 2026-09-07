@@ -17,6 +17,7 @@ export type StorePublic = {
     name: string;
     description: string | null;
     logoUrl: string | null;
+    /** The legacy single cover image. Acts as the carousel's fallback slide. */
     bannerUrl: string | null;
     faviconUrl: string | null;
     phone: string | null;
@@ -25,10 +26,65 @@ export type StorePublic = {
     facebookUrl: string | null;
     instagramUrl: string | null;
     whatsappNumber: string | null;
+    /** Business location, when the merchant has placed a pin. */
+    latitude: number | null;
+    longitude: number | null;
+    openingHours: string | null;
+    /**
+     * Overrides for the storefront's <title> and meta description. Null falls
+     * back to the store name and description, so every shop still gets tags
+     * about itself rather than a generic zPOS one.
+     */
+    metaTitle: string | null;
+    metaDescription: string | null;
     deliveryCharge: number;
     freeDeliveryOver: number | null;
     minOrderAmount: number;
     themeColor: string;
+};
+
+/**
+ * Long-form pages the merchant publishes. Split out of `StorePublic` because
+ * the storefront only needs them on the policy pages themselves — shipping
+ * twenty thousand characters of terms with every homepage request would be
+ * absurd.
+ */
+export type StorePolicies = {
+    deliveryInfo: string | null;
+    returnPolicy: string | null;
+    terms: string | null;
+    privacyPolicy: string | null;
+};
+
+/** Which policy pages actually have content, so the footer can hide the rest. */
+export type StorePolicyFlags = {
+    hasDeliveryInfo: boolean;
+    hasReturnPolicy: boolean;
+    hasTerms: boolean;
+    hasPrivacyPolicy: boolean;
+};
+
+/** One slide in the storefront hero carousel. */
+export type StoreBannerPublic = {
+    id: string;
+    imageUrl: string;
+    title: string | null;
+    subtitle: string | null;
+    buttonText: string | null;
+    buttonLink: string | null;
+};
+
+/** A banner as the merchant edits it, including its hidden ones. */
+export type MerchantBanner = {
+    id: string;
+    /** Stored reference, so the form can save it back unchanged. */
+    imageUrl: string;
+    title: string | null;
+    subtitle: string | null;
+    buttonText: string | null;
+    buttonLink: string | null;
+    position: number;
+    isActive: boolean;
 };
 
 export type StoreCategory = {
@@ -36,6 +92,8 @@ export type StoreCategory = {
     name: string;
     slug: string;
     productCount: number;
+    /** Merchant-uploaded tile artwork; null falls back to a typographic tile. */
+    imageUrl: string | null;
 };
 
 /** One purchasable option of a product. */
@@ -79,10 +137,18 @@ export type StoreProductDetail = StoreProductCard & {
 
 export type StoreHome = {
     store: StorePublic;
+    /**
+     * Active hero slides in display order. Empty is normal and means the
+     * homepage falls back to `store.bannerUrl`, or to a typographic panel when
+     * there is no artwork at all — a new shop must still look finished.
+     */
+    banners: StoreBannerPublic[];
     categories: StoreCategory[];
     featured: StoreProductCard[];
     latest: StoreProductCard[];
     onSale: StoreProductCard[];
+    /** Which footer policy links to render. The text itself is fetched per page. */
+    policies: StorePolicyFlags;
 };
 
 export type StoreProductList = {
@@ -122,11 +188,12 @@ export type StoreOrderConfirmation = {
 
 // ── Merchant dashboard ───────────────────────────────────────────────────────
 
-export type MerchantStore = StorePublic & {
-    id: string;
-    isActive: boolean;
-    createdAt: string;
-};
+export type MerchantStore = StorePublic &
+    StorePolicies & {
+        id: string;
+        isActive: boolean;
+        createdAt: string;
+    };
 
 export type MerchantStoreProduct = {
     id: string;

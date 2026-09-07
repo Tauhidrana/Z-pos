@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { normalizeProductName } from "@/lib/product-name-normalizer";
+import { variantLabel } from "@/lib/variant-name";
 import type { CreateProduct } from "@myapp/shared/schemas/product.schema";
 import type { PrismaTx, ProductRow, ProductStatus, ProductTableRow } from "@/types";
 import { Prisma, StockDirection, StockMovementType } from "generated/prisma";
@@ -66,7 +67,12 @@ export const ProductService = {
             SELECT
                 pv.product_id,
                 COALESCE(SUM(pv.stock_on_hand), 0)::INT AS total_stock,
-                COUNT(pv.id)::INT                       AS total_variants
+                COUNT(pv.id)::INT                       AS total_variants,
+                -- Variants of one product need not share a price, so the row
+                -- carries the range and the UI renders "৳900" or "৳900 – ৳1,200".
+                -- NULL when nothing under the product has been priced.
+                MIN(pv.last_sell_price)                 AS price_min,
+                MAX(pv.last_sell_price)                 AS price_max
             FROM product_variants pv
             JOIN shop_products sp ON sp.id = pv.product_id
             WHERE pv.is_active = true
@@ -81,6 +87,8 @@ export const ProductService = {
                 c.name                          AS category,
                 COALESCE(ps.total_stock, 0)     AS stock,
                 COALESCE(ps.total_variants, 0)  AS variants,
+                ps.price_min,
+                ps.price_max,
                 CASE
                     WHEN COALESCE(ps.total_stock, 0) = 0                        THEN 'OUT_OF_STOCK'
                     WHEN COALESCE(ps.total_stock, 0) <= sp.reorder_level        THEN 'LOW_STOCK'
@@ -97,6 +105,8 @@ export const ProductService = {
             category,
             stock,
             variants,
+            price_min,
+            price_max,
             computed_status  AS status,
             COUNT(*) OVER () AS total_count
         FROM computed
@@ -118,6 +128,8 @@ export const ProductService = {
                 category: row.category,
                 stock: Number(row.stock),
                 variants: Number(row.variants),
+                priceMin: row.price_min === null ? null : Number(row.price_min),
+                priceMax: row.price_max === null ? null : Number(row.price_max),
                 status: row.status as ProductStatus,
             })),
         };
@@ -190,16 +202,9 @@ export const ProductService = {
 
             const variants = await Promise.all(
                 data.variants.map((variant) => {
-                    // Build the label from whichever attributes are present.
-                    // Interpolating both unconditionally produced names like
-                    // "undefined - undefined" for a plain product with no
-                    // colour or size. ProductVariant.name is nullable exactly
-                    // for that case, so leave it null rather than inventing a
-                    // label the cashier would see on the POS screen.
                     const color = variant.color?.trim() || null;
                     const size = variant.size?.trim() || null;
-                    const name =
-                        [size, color].filter(Boolean).join(" - ") || null;
+                    const name = variantLabel(color, size);
 
                     return tx.productVariant.create({
                         data: {

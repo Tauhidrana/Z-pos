@@ -3,12 +3,16 @@ import type { AppEnv } from "@/types";
 import { validate } from "@/middleware/validate.middleware";
 import { requireRole } from "@/middleware/requireRole.middleware";
 import { StoreController } from "@/controllers/store.controller";
+import { BannerController } from "@/controllers/banner.controller";
 import { OnlineOrderController } from "@/controllers/online-order.controller";
 import {
     createStoreSchema,
     updateStoreSchema,
     updateStoreProductSchema,
     updateStoreVariantSchema,
+    createBannerSchema,
+    updateBannerSchema,
+    reorderBannersSchema,
 } from "@myapp/shared/schemas/store.schema";
 import { updateOrderStatusSchema } from "@myapp/shared/schemas/online-order.schema";
 
@@ -41,6 +45,22 @@ storeRouter.patch(
     validate(updateStoreVariantSchema),
     StoreController.updateStoreVariant,
 );
+
+// Banners. Open to STAFF alongside the rest of day-to-day merchandising —
+// swapping a seasonal banner is shop-floor work, not a change to the business's
+// identity the way renaming the store or changing its address is.
+//
+// Registered before "/orders/*" for no reason other than grouping; Hono matches
+// on the full path, so order only matters between overlapping patterns.
+storeRouter.get("/banners", BannerController.list);
+storeRouter.post("/banners", validate(createBannerSchema), BannerController.create);
+storeRouter.patch("/banners", validate(updateBannerSchema), BannerController.update);
+storeRouter.patch(
+    "/banners/reorder",
+    validate(reorderBannersSchema),
+    BannerController.reorder,
+);
+storeRouter.delete("/banners/:id", BannerController.remove);
 
 storeRouter.get("/orders/stats", OnlineOrderController.getStats);
 storeRouter.get("/orders", OnlineOrderController.getOrders);

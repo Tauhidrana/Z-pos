@@ -30,9 +30,17 @@ import type {
   CheckoutPayload,
   ProductTableRow,
   TableResponse,
+  TProduct,
 } from "@/types";
 import { playSoundWithCacheInstance } from "@/lib/sound";
 import { CheckoutModal } from "@/components/pos/checkout-modal";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useDebounce } from "@/hooks/useDebounce";
 import { getProductByBarcode } from "@/lib/barcode-lookup";
 import Pagination from "@/components/pagination";
@@ -65,6 +73,42 @@ async function getCartItemByProductId(
     );
     if (!res.ok) return null;
     const json: { data: CartEntryProduct } = await res.json();
+    return json.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function getCartItemByVariantId(
+  variantId: string,
+  getToken: () => Promise<string | null>,
+): Promise<CartEntryProduct | null> {
+  try {
+    const token = await getToken();
+    const res = await fetch(
+      `${server_URI}/products/get/variants/${variantId}/cart-item`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return null;
+    const json: { data: CartEntryProduct } = await res.json();
+    return json.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The variants of one product, for the picker below. */
+async function getProductVariants(
+  productId: string,
+  getToken: () => Promise<string | null>,
+): Promise<TProduct | null> {
+  try {
+    const token = await getToken();
+    const res = await fetch(`${server_URI}/products/get/${productId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const json: { data: TProduct } = await res.json();
     return json.data ?? null;
   } catch {
     return null;
@@ -122,6 +166,11 @@ export default function PointOfSale() {
   const { getToken } = useAuth();
   const [cart, setCart] = useState<CartItem[]>([]);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  /** Open when a multi-variant product was tapped. `variants: null` = loading. */
+  const [variantPicker, setVariantPicker] = useState<{
+    product: ProductTableRow;
+    variants: TProduct["variants"] | null;
+  } | null>(null);
   const hidInputRef = useRef<HTMLInputElement>(null);
   const [hidBuffer, setHidBuffer] = useState("");
   const [search, setSearch] = useState("");
@@ -262,17 +311,46 @@ export default function PointOfSale() {
         toast.error(`${p.name} is out of stock`);
         return;
       }
+
+      // More than one variant: ask which. This used to tell the cashier to
+      // scan a barcode instead, which is a dead end for stock that never came
+      // through a purchase — opening stock has no barcode to scan.
       if (p.variants > 1) {
-        toast.info(`${p.name} has multiple variants — scan a barcode to select one`);
-        hidInputRef.current?.focus();
+        setVariantPicker({ product: p, variants: null });
+        const detail = await getProductVariants(p.id, getToken);
+        setVariantPicker((current) =>
+          current && current.product.id === p.id
+            ? { product: p, variants: detail?.variants ?? [] }
+            : current,
+        );
         return;
       }
+
       const item = await getCartItemByProductId(p.id, getToken);
       if (item) {
         addToCart(item);
         playSoundWithCacheInstance("beep");
       } else {
-        toast.error(`Could not add ${p.name} to cart`);
+        toast.error(
+          `${p.name} has no price yet. Set one on the product page, or record a purchase.`,
+        );
+        playSoundWithCacheInstance("error_beep");
+      }
+    },
+    [addToCart, getToken],
+  );
+
+  const handleVariantPick = useCallback(
+    async (variantId: string, label: string) => {
+      const item = await getCartItemByVariantId(variantId, getToken);
+      setVariantPicker(null);
+      if (item) {
+        addToCart(item);
+        playSoundWithCacheInstance("beep");
+      } else {
+        toast.error(
+          `${label} has no price yet. Set one on the product page, or record a purchase.`,
+        );
         playSoundWithCacheInstance("error_beep");
       }
     },
@@ -833,6 +911,105 @@ export default function PointOfSale() {
         confirming={confirming}
         done={done}
       />
+
+      <VariantPickerModal
+        state={variantPicker}
+        onPick={handleVariantPick}
+        onClose={() => setVariantPicker(null)}
+      />
     </div>
+  );
+}
+
+// ── Variant picker ───────────────────────────────────────────────────────────
+
+/**
+ * Which variant of a multi-variant product the cashier means.
+ *
+ * The alternative the POS used before was "scan a barcode to select one", which
+ * only works for stock that came through a purchase — a barcode is issued
+ * against a purchase batch and nothing else. Opening stock has none, so a shirt
+ * entered in three sizes on the day the shop opened could be counted, priced
+ * and displayed, but never rung up.
+ */
+function VariantPickerModal({
+  state,
+  onPick,
+  onClose,
+}: {
+  state: { product: ProductTableRow; variants: TProduct["variants"] | null } | null;
+  onPick: (variantId: string, label: string) => void;
+  onClose: () => void;
+}) {
+  if (!state) return null;
+
+  const { product, variants } = state;
+  // An inactive variant is not on sale, and one with no stock cannot be picked
+  // up off the shelf — neither belongs in a list of things to ring up.
+  const sellable = (variants ?? []).filter((v) => v.isActive && v.stock > 0);
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-base">{product.name}</DialogTitle>
+          <DialogDescription>Which one?</DialogDescription>
+        </DialogHeader>
+
+        {variants === null ? (
+          <div className="space-y-2 py-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full rounded-lg" />
+            ))}
+          </div>
+        ) : sellable.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            Nothing in stock for this product right now.
+          </p>
+        ) : (
+          <div className="max-h-80 space-y-2 overflow-y-auto py-1">
+            {sellable.map((variant) => {
+              const label =
+                [variant.color, variant.size].filter(Boolean).join(" · ") ||
+                variant.name ||
+                product.name;
+              const unpriced = variant.sellPrice === null;
+
+              return (
+                <button
+                  key={variant.id}
+                  type="button"
+                  disabled={unpriced}
+                  onClick={() => onPick(variant.id, label)}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-3 rounded-lg border p-3 text-left transition-colors",
+                    unpriced
+                      ? "cursor-not-allowed opacity-60"
+                      : "hover:border-primary hover:bg-muted/50",
+                  )}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{label}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {variant.stock} in stock
+                    </p>
+                  </div>
+                  <span
+                    className={cn(
+                      "shrink-0 font-mono text-sm",
+                      unpriced && "text-muted-foreground",
+                    )}
+                  >
+                    {/* Say why it cannot be picked, rather than showing ৳0 —
+                        which reads as free rather than as not yet priced. */}
+                    {unpriced ? "No price" : BDT(variant.sellPrice as number)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -24,7 +24,25 @@ export const saleSchema = z.object({
             z.object({
                 variantId: z.string().min(1),
                 quantity: z.number().int().positive("Quantity must be at least 1"),
-                barcode: z.string().min(13).max(13),
+                /**
+                 * The scanned label, when there was one.
+                 *
+                 * Optional, because a barcode is only ever issued against a
+                 * purchase batch, and plenty of real stock never goes through
+                 * one — opening stock entered when the product was created, or
+                 * a variant added by hand afterwards. Requiring it here meant
+                 * such a product could be put on the shelf and counted, but
+                 * never rung up.
+                 *
+                 * When present the line is priced from that batch, which is
+                 * what the till has always done. When absent it is priced from
+                 * the variant's own shelf price, server-side either way — the
+                 * client never sends a price.
+                 */
+                barcode: z.preprocess(
+                    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+                    z.string().min(13).max(13).optional(),
+                ),
                 discount: z.object({
                     type: z.enum(["percent", "fixed"]),
                     amount: z.number().nonnegative(),

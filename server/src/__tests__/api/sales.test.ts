@@ -375,3 +375,193 @@ describe('GET /api/sales/get/all', () => {
         }
     })
 })
+
+// ── Selling stock that never came through a purchase ──────────────────────────
+//
+// A barcode is only ever issued against a purchase batch, so opening stock —
+// entered when the product was created, or on a variant added by hand — has
+// none. Requiring one to check out meant such stock could be counted, priced
+// and displayed but never rung up.
+
+describe('POST /api/sales/create — lines with no barcode', () => {
+    const UNSCANNED_VARIANT = '550e8400-e29b-41d4-a716-446655440031'
+
+    function unscannedBody(overrides: Record<string, unknown> = {}) {
+        return {
+            cartItems: [
+                {
+                    variantId: UNSCANNED_VARIANT,
+                    quantity: 2,
+                    discount: { type: 'fixed', amount: 0 },
+                },
+            ],
+            totalAmount: 300,
+            checkout: {
+                method: 'CASH',
+                status: 'PAID',
+                paidAmount: 300,
+                customer: { name: 'John Doe', phone: '01700000001', email: '', address: '' },
+            },
+            ...overrides,
+        }
+    }
+
+    function locksStock(stock = 10) {
+        mockPrisma.customer.upsert.mockResolvedValueOnce({ id: 'cust-1' })
+        mockPrisma.$queryRaw.mockResolvedValueOnce([
+            {
+                id: UNSCANNED_VARIANT,
+                name: 'Red',
+                product_name: 'T-Shirt',
+                stock_on_hand: stock,
+            },
+        ])
+        mockPrisma.sale.create.mockResolvedValueOnce({
+            id: 'sale-1',
+            invoice_number: 'INV-2026-000043',
+        })
+    }
+
+    it('prices the line from the variant’s shelf price', async () => {
+        mockPrisma.productVariant.findMany.mockResolvedValueOnce([
+            { id: UNSCANNED_VARIANT, last_sell_price: new Decimal(150) },
+        ])
+        locksStock()
+
+        const res = await post(app, '/api/sales/create', unscannedBody())
+        expect(res.status).toBe(201)
+
+        // 2 x 150, computed server-side from the database — never from the body.
+        const saleData = mockPrisma.sale.create.mock.calls[0]?.[0].data
+        expect(Number(saleData.total)).toBe(300)
+        expect(Number(saleData.items.create[0].unit_price)).toBe(150)
+    })
+
+    it('does not go looking for barcodes when nothing was scanned', async () => {
+        mockPrisma.productVariant.findMany.mockResolvedValueOnce([
+            { id: UNSCANNED_VARIANT, last_sell_price: new Decimal(150) },
+        ])
+        locksStock()
+
+        await post(app, '/api/sales/create', unscannedBody())
+
+        expect(mockPrisma.barcode.findMany.mock.calls.length).toBe(0)
+        expect(mockPrisma.variantBarcodeAllocation.findMany.mock.calls.length).toBe(0)
+    })
+
+    it('refuses a variant that has never been priced rather than selling it at zero', async () => {
+        mockPrisma.productVariant.findMany.mockResolvedValueOnce([
+            { id: UNSCANNED_VARIANT, last_sell_price: null },
+        ])
+
+        const res = await post(app, '/api/sales/create', unscannedBody())
+        expect(res.status).toBe(422)
+
+        const body = await json<{ error: { code: string } }>(res)
+        expect(body.error.code).toBe('NO_PRICE')
+        expect(mockPrisma.sale.create.mock.calls.length).toBe(0)
+    })
+
+    it('scopes the price lookup to the session’s shop', async () => {
+        // Another merchant's variant id: the scoped query returns nothing, so
+        // there is no price and the sale is refused rather than priced from a
+        // row the caller cannot see.
+        mockPrisma.productVariant.findMany.mockResolvedValueOnce([])
+
+        const res = await post(app, '/api/sales/create', unscannedBody())
+        expect(res.status).toBe(422)
+
+        const where = mockPrisma.productVariant.findMany.mock.calls[0]?.[0].where
+        expect(where.product.shop_id).toBe('test-shop-uuid')
+        expect(mockPrisma.sale.create.mock.calls.length).toBe(0)
+    })
+
+    it('treats an empty barcode string as no barcode', async () => {
+        mockPrisma.productVariant.findMany.mockResolvedValueOnce([
+            { id: UNSCANNED_VARIANT, last_sell_price: new Decimal(150) },
+        ])
+        locksStock()
+
+        const res = await post(
+            app,
+            '/api/sales/create',
+            unscannedBody({
+                cartItems: [
+                    {
+                        variantId: UNSCANNED_VARIANT,
+                        quantity: 2,
+                        barcode: '',
+                        discount: { type: 'fixed', amount: 0 },
+                    },
+                ],
+            }),
+        )
+
+        // Without the preprocess this failed min(13) and 422'd on a cart the
+        // POS legitimately produces.
+        expect(res.status).toBe(201)
+    })
+
+    it('prices a mixed cart from the batch and the shelf respectively', async () => {
+        mockPrisma.barcode.findMany.mockResolvedValueOnce([{ id: 'bc-1', code: BARCODE }])
+        mockPrisma.variantBarcodeAllocation.findMany.mockResolvedValueOnce([
+            { barcode_id: 'bc-1', variant_id: VARIANT_ID, purchaseItem: { sell_price: 20 } },
+        ])
+        mockPrisma.productVariant.findMany.mockResolvedValueOnce([
+            { id: UNSCANNED_VARIANT, last_sell_price: new Decimal(150) },
+        ])
+        mockPrisma.customer.upsert.mockResolvedValueOnce({ id: 'cust-1' })
+        mockPrisma.$queryRaw.mockResolvedValueOnce([
+            { id: VARIANT_ID, name: 'Red', product_name: 'T-Shirt', stock_on_hand: 10 },
+            { id: UNSCANNED_VARIANT, name: 'Blue', product_name: 'T-Shirt', stock_on_hand: 10 },
+        ])
+        mockPrisma.sale.create.mockResolvedValueOnce({
+            id: 'sale-1',
+            invoice_number: 'INV-2026-000044',
+        })
+
+        const res = await post(app, '/api/sales/create', {
+            cartItems: [
+                {
+                    variantId: VARIANT_ID,
+                    quantity: 1,
+                    barcode: BARCODE,
+                    discount: { type: 'fixed', amount: 0 },
+                },
+                {
+                    variantId: UNSCANNED_VARIANT,
+                    quantity: 1,
+                    discount: { type: 'fixed', amount: 0 },
+                },
+            ],
+            totalAmount: 170,
+            checkout: {
+                method: 'CASH',
+                status: 'PAID',
+                paidAmount: 170,
+                customer: { name: 'John Doe', phone: '01700000001', email: '', address: '' },
+            },
+        })
+
+        expect(res.status).toBe(201)
+
+        // 20 from the scanned batch + 150 from the shelf price.
+        const saleData = mockPrisma.sale.create.mock.calls[0]?.[0].data
+        expect(Number(saleData.total)).toBe(170)
+        const prices = saleData.items.create.map((i: any) => Number(i.unit_price))
+        expect(prices).toEqual([20, 150])
+    })
+
+    it('still refuses a barcode that resolves to no purchase allocation', async () => {
+        // The scanned path is unchanged: a label with no batch behind it is a
+        // data problem, not a shelf-price fallback.
+        mockPrisma.barcode.findMany.mockResolvedValueOnce([{ id: 'bc-1', code: BARCODE }])
+        mockPrisma.variantBarcodeAllocation.findMany.mockResolvedValueOnce([])
+
+        const res = await post(app, '/api/sales/create', VALID_CHECKOUT_BODY)
+        expect(res.status).toBe(422)
+
+        const body = await json<{ error: { code: string } }>(res)
+        expect(body.error.code).toBe('ALLOCATION_NOT_FOUND')
+    })
+})

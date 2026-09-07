@@ -28,21 +28,25 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { FolderPlus, ChevronRight } from "lucide-react";
+import type { Category } from "@myapp/shared";
 import { toast } from "sonner";
 import { Spinner } from "./ui/spinner";
 import {
   categorySchema,
+  CATEGORY_IMAGE_ASPECT_RATIO,
+  CATEGORY_IMAGE_ASPECT_TOLERANCE,
+  CATEGORY_IMAGE_MIN_WIDTH,
   type CategoryFormValues,
 } from "@myapp/shared/schemas/category.schema";
+import { BannerImagePicker } from "@/components/banner-image-picker";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface Category {
-  id: string;
-  name: string;
-  description?: string;
-  children?: Category[];
-}
+// `Category` is re-exported rather than redeclared. This file used to define
+// its own copy, which silently diverged from the shared one the API actually
+// returns — two structurally different types with the same name, and callers
+// passing one where the other was expected.
+export type { Category } from "@myapp/shared";
 
 interface CategoryModalProps {
   categories: Category[];
@@ -126,6 +130,7 @@ export function AddNewCategoryModal({
     defaultValues: {
       name: "",
       description: "",
+      image_url: "",
       parent_id: "",
     },
   });
@@ -234,7 +239,40 @@ export function AddNewCategoryModal({
                 <FormItem>
                   <FormLabel>Description</FormLabel>
                   <FormControl>
-                    <Input placeholder="Optional description" {...field} />
+                    {/* `?? ""` because the schema treats an emptied field as
+                        null — "clear this" — while an input must stay a
+                        controlled string or React switches it to uncontrolled
+                        mid-edit. */}
+                    <Input
+                      placeholder="Optional description"
+                      {...field}
+                      value={field.value ?? ""}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* ── Storefront image ──────────────────────────────────── */}
+            <FormField
+              control={form.control}
+              name="image_url"
+              render={({ field }) => (
+                <FormItem>
+                  <FormControl>
+                    <BannerImagePicker
+                      label="Category image"
+                      aspectClass="aspect-square max-w-[180px]"
+                      value={field.value ?? ""}
+                      onChange={field.onChange}
+                      expect={{
+                        ratio: CATEGORY_IMAGE_ASPECT_RATIO,
+                        tolerance: CATEGORY_IMAGE_ASPECT_TOLERANCE,
+                        minWidth: CATEGORY_IMAGE_MIN_WIDTH,
+                        label: "Category images",
+                      }}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

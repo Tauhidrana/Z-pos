@@ -31,6 +31,9 @@ export type ProductRow = {
     variants: bigint;
     reorder_level: number;
     status: ProductStatus;
+    /** Decimal columns come back from the driver as strings. */
+    price_min: string | null;
+    price_max: string | null;
 };
 
 export type ProductTableRow = {
@@ -40,6 +43,13 @@ export type ProductTableRow = {
     stock: number;
     variants: number
     status: "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK";
+    /**
+     * Cheapest and dearest active variant, so a row can show "৳900" or
+     * "৳900 – ৳1,200" without the list fetching every variant. Both null when
+     * nothing under the product has been priced yet.
+     */
+    priceMin: number | null;
+    priceMax: number | null;
 };
 
 export type PurchaseHistory = {
@@ -61,7 +71,12 @@ export type OverviewStats = {
 export type CartEntryProduct = {
     variantId: string;
     name: string;
-    barcode: string;
+    /**
+     * The label this line was scanned from, when there was one. Absent for
+     * stock that never came through a purchase batch — opening stock, or a
+     * variant added by hand — which has a shelf price but no barcode.
+     */
+    barcode?: string;
     price: number;
     availableStock: number;
 }
@@ -261,27 +276,44 @@ export type TProduct = {
         color: string;
         size: string;
         stock: number;
+        /**
+         * The shelf price, or null when this variant has never been priced.
+         *
+         * Null is a real state, not a missing field: a product can be entered
+         * at the counter before its pricing is decided. Both the till and the
+         * storefront withhold an unpriced variant rather than sell it at zero.
+         */
+        sellPrice: number | null;
     }[];
 }
 
+/**
+ * A category as the dashboard's list endpoint returns it.
+ *
+ * Field names are snake_case because that endpoint hands back selected columns
+ * directly rather than mapping them — worth knowing before adding a field here
+ * and wondering why it reads as undefined.
+ */
 export interface FlatCategory {
     id: string;
     name: string;
-    description?: string;
+    description?: string | null;
+    slug?: string;
+    /** Storefront tile artwork: a stored image reference, or null for none. */
+    image_url?: string | null;
+    position?: number;
+    is_active?: boolean;
 }
 
 export interface Category {
     id: string;
     name: string;
-    description?: string;
+    description?: string | null;
+    slug?: string;
+    image_url?: string | null;
+    position?: number;
+    is_active?: boolean;
     children?: Category[];
-}
-
-
-export interface FlatCategory {
-    id: string;
-    name: string;
-    description?: string;
 }
 
 
@@ -379,22 +411,6 @@ export interface DeletePayload {
 
 
 export type TimeLine = 'TODAY' | 'YESTERDAY' | 'THIS_WEEK' | 'THIS_MONTH' | 'THIS_YEAR' | 'CUSTOM'
-
-
-
-export interface Category {
-    id: string;
-    name: string;
-    description?: string;
-    children?: Category[];
-}
-
-
-export interface FlatCategory {
-    id: string;
-    name: string;
-    description?: string;
-}
 
 
 

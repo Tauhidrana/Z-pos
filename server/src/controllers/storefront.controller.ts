@@ -26,8 +26,11 @@ import {
     round2,
 } from "@/lib/store";
 import type {
+    StoreBannerPublic,
     StoreCategory,
     StoreHome,
+    StorePolicies,
+    StorePolicyFlags,
     StorePublic,
     StoreProductCard,
     StoreProductDetail,
@@ -144,6 +147,11 @@ function toPublicStore(
     facebook_url: string | null;
     instagram_url: string | null;
     whatsapp_number: string | null;
+    latitude: Decimal | null;
+    longitude: Decimal | null;
+    opening_hours: string | null;
+    meta_title: string | null;
+    meta_description: string | null;
     delivery_charge: Decimal;
     free_delivery_over: Decimal | null;
     min_order_amount: Decimal;
@@ -163,6 +171,11 @@ function toPublicStore(
         facebookUrl: store.facebook_url,
         instagramUrl: store.instagram_url,
         whatsappNumber: store.whatsapp_number,
+        latitude: store.latitude === null ? null : Number(store.latitude),
+        longitude: store.longitude === null ? null : Number(store.longitude),
+        openingHours: store.opening_hours,
+        metaTitle: store.meta_title,
+        metaDescription: store.meta_description,
         deliveryCharge: Number(store.delivery_charge),
         freeDeliveryOver:
             store.free_delivery_over === null ? null : Number(store.free_delivery_over),
@@ -186,12 +199,54 @@ const STORE_SELECT = {
     facebook_url: true,
     instagram_url: true,
     whatsapp_number: true,
+    latitude: true,
+    longitude: true,
+    opening_hours: true,
+    meta_title: true,
+    meta_description: true,
     delivery_charge: true,
     free_delivery_over: true,
     min_order_amount: true,
     theme_color: true,
     is_active: true,
 } as const;
+
+/**
+ * Which policy pages have content.
+ *
+ * A separate query that returns four booleans rather than four columns in
+ * `STORE_SELECT`: terms and a privacy policy can each run to twenty thousand
+ * characters, and the homepage only needs to know whether to render a footer
+ * link. Selecting the text to test it for emptiness would ship all of it on
+ * every storefront request. It runs inside the homepage's existing
+ * `Promise.all`, so it costs no extra round-trip.
+ */
+async function policyFlags(storeId: string): Promise<StorePolicyFlags> {
+    const rows = await prisma.$queryRaw<
+        {
+            has_delivery_info: boolean;
+            has_return_policy: boolean;
+            has_terms: boolean;
+            has_privacy_policy: boolean;
+        }[]
+    >`
+        SELECT
+            COALESCE(delivery_info,  '') <> '' AS has_delivery_info,
+            COALESCE(return_policy,  '') <> '' AS has_return_policy,
+            COALESCE(terms,          '') <> '' AS has_terms,
+            COALESCE(privacy_policy, '') <> '' AS has_privacy_policy
+        FROM stores
+        WHERE id = ${storeId}
+    `;
+
+    const row = rows[0];
+    return {
+        hasDeliveryInfo: row?.has_delivery_info ?? false,
+        hasReturnPolicy: row?.has_return_policy ?? false,
+        hasTerms: row?.has_terms ?? false,
+        hasPrivacyPolicy: row?.has_privacy_policy ?? false,
+    };
+}
 
 type StoreRow = Prisma.StoreGetPayload<{ select: typeof STORE_SELECT }>;
 
@@ -237,7 +292,20 @@ export const StorefrontController = {
         const store = await requireStore(c.req.param("slug"));
         const where = publicProductWhere(store.shop_id);
 
-        const [categories, featured, latest, discounted] = await Promise.all([
+        const [banners, policies, categories, featured, latest, discounted] = await Promise.all([
+            prisma.storeBanner.findMany({
+                where: { store_id: store.id, is_active: true },
+                select: {
+                    id: true,
+                    image_url: true,
+                    title: true,
+                    subtitle: true,
+                    button_text: true,
+                    button_link: true,
+                },
+                orderBy: [{ position: "asc" }, { created_at: "asc" }],
+            }),
+            policyFlags(store.id),
             prisma.category.findMany({
                 where: {
                     shop_id: store.shop_id,
@@ -248,9 +316,12 @@ export const StorefrontController = {
                     id: true,
                     name: true,
                     slug: true,
+                    image_url: true,
                     _count: { select: { products: { where } } },
                 },
-                orderBy: { name: "asc" },
+                // Merchant order first, then alphabetical — an untouched
+                // catalogue stays alphabetical because every row defaults to 0.
+                orderBy: [{ position: "asc" }, { name: "asc" }],
             }),
             prisma.product.findMany({
                 where: { ...where, is_featured: true },
@@ -277,6 +348,21 @@ export const StorefrontController = {
 
         const payload: StoreHome = {
             store: toPublicStore(mediaUrl, store),
+            banners: banners.map(
+                (banner): StoreBannerPublic => ({
+                    id: banner.id,
+                    // Resolved to a loadable URL here, like every other image:
+                    // the row holds a reference with no hostname in it.
+                    imageUrl: mediaUrl(banner.image_url) ?? "",
+                    title: banner.title,
+                    subtitle: banner.subtitle,
+                    buttonText: banner.button_text,
+                    buttonLink: banner.button_link,
+                }),
+                // A banner whose image failed to resolve would render as a
+                // broken slide in the middle of the carousel; drop it instead.
+            ).filter((banner) => banner.imageUrl !== ""),
+            policies,
             categories: categories
                 .map(
                     (cat): StoreCategory => ({
@@ -284,6 +370,7 @@ export const StorefrontController = {
                         name: cat.name,
                         slug: cat.slug,
                         productCount: cat._count.products,
+                        imageUrl: mediaUrl(cat.image_url),
                     }),
                 )
                 .filter((cat) => cat.productCount > 0),
@@ -484,6 +571,7 @@ export const StorefrontController = {
 
     /** Category list for the storefront's browse page and mobile nav. */
     async getCategories(c: Context) {
+        const mediaUrl = mediaUrlResolver(c);
         const store = await requireStore(c.req.param("slug"));
         const where = publicProductWhere(store.shop_id);
 
@@ -493,9 +581,10 @@ export const StorefrontController = {
                 id: true,
                 name: true,
                 slug: true,
+                image_url: true,
                 _count: { select: { products: { where } } },
             },
-            orderBy: { name: "asc" },
+            orderBy: [{ position: "asc" }, { name: "asc" }],
         });
 
         cacheFor(c, 60);
@@ -508,11 +597,43 @@ export const StorefrontController = {
                         name: cat.name,
                         slug: cat.slug,
                         productCount: cat._count.products,
+                        imageUrl: mediaUrl(cat.image_url),
                     }),
                 )
                 .filter((cat) => cat.productCount > 0),
             "Categories fetched successfully",
         );
+    },
+
+    /**
+     * The merchant's published policy pages.
+     *
+     * Its own endpoint rather than part of the homepage payload: this is the
+     * long text, fetched only when a shopper actually opens one of the pages,
+     * and cached hard because it changes about once a year.
+     */
+    async getPolicies(c: Context) {
+        const store = await requireStore(c.req.param("slug"));
+
+        const row = await prisma.store.findUnique({
+            where: { id: store.id },
+            select: {
+                delivery_info: true,
+                return_policy: true,
+                terms: true,
+                privacy_policy: true,
+            },
+        });
+
+        const policies: StorePolicies = {
+            deliveryInfo: row?.delivery_info ?? null,
+            returnPolicy: row?.return_policy ?? null,
+            terms: row?.terms ?? null,
+            privacyPolicy: row?.privacy_policy ?? null,
+        };
+
+        cacheFor(c, 300);
+        return sendSuccess(c, policies, "Policies fetched successfully");
     },
 
     /**

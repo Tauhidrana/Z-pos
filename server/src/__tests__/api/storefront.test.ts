@@ -26,6 +26,11 @@ const STORE_ROW = {
     facebook_url: null,
     instagram_url: null,
     whatsapp_number: null,
+    latitude: null,
+    longitude: null,
+    opening_hours: null,
+    meta_title: null,
+    meta_description: null,
     delivery_charge: 60,
     free_delivery_over: null,
     min_order_amount: 0,
@@ -394,5 +399,170 @@ describe('GET /api/storefront/:slug/orders/:orderNumber', () => {
             order_number: 'ORD-001001',
             customer_phone: '01711223344',
         })
+    })
+})
+
+describe('storefront homepage', () => {
+    const BANNER_IMAGE_ID = '550e8400-e29b-41d4-a716-446655440401'
+
+    /** The four booleans `policyFlags` derives without selecting the text. */
+    function policyRow(flags: Partial<Record<string, boolean>> = {}) {
+        mockPrisma.$queryRaw.mockResolvedValueOnce([
+            {
+                has_delivery_info: false,
+                has_return_policy: false,
+                has_terms: false,
+                has_privacy_policy: false,
+                ...flags,
+            },
+        ])
+    }
+
+    it('serves only the active slides, in the merchant’s order', async () => {
+        mockPrisma.store.findUnique.mockResolvedValueOnce(STORE_ROW)
+        policyRow()
+        mockPrisma.storeBanner.findMany.mockResolvedValueOnce([
+            {
+                id: 'banner-1',
+                image_url: `media:${BANNER_IMAGE_ID}`,
+                title: 'Eid collection',
+                subtitle: null,
+                button_text: 'Shop now',
+                button_link: '/category/shirts',
+            },
+        ])
+
+        const res = await get(app, '/api/storefront/tds')
+        expect(res.status).toBe(200)
+
+        const args = mockPrisma.storeBanner.findMany.mock.calls[0]?.[0]
+        expect(args.where).toEqual({ store_id: STORE_ID, is_active: true })
+        expect(args.orderBy).toEqual([{ position: 'asc' }, { created_at: 'asc' }])
+
+        const body = await json<ApiResponse<any>>(res)
+        expect(body.data.banners).toHaveLength(1)
+        // The row holds a hostless reference; the response has to carry a URL a
+        // browser can actually load.
+        expect(body.data.banners[0].imageUrl).toContain(`/api/media/${BANNER_IMAGE_ID}`)
+        expect(body.data.banners[0].buttonLink).toBe('/category/shirts')
+    })
+
+    it('drops a slide whose artwork cannot be resolved rather than shipping a broken one', async () => {
+        mockPrisma.store.findUnique.mockResolvedValueOnce(STORE_ROW)
+        policyRow()
+        mockPrisma.storeBanner.findMany.mockResolvedValueOnce([
+            { id: 'banner-1', image_url: 'nonsense', title: null, subtitle: null, button_text: null, button_link: null },
+            { id: 'banner-2', image_url: `media:${BANNER_IMAGE_ID}`, title: null, subtitle: null, button_text: null, button_link: null },
+        ])
+
+        const res = await get(app, '/api/storefront/tds')
+        const body = await json<ApiResponse<any>>(res)
+
+        expect(body.data.banners.map((b: any) => b.id)).toEqual(['banner-2'])
+    })
+
+    it('reports which policy pages exist without shipping their text', async () => {
+        mockPrisma.store.findUnique.mockResolvedValueOnce(STORE_ROW)
+        policyRow({ has_return_policy: true, has_terms: true })
+
+        const res = await get(app, '/api/storefront/tds')
+        const body = await json<ApiResponse<any>>(res)
+
+        expect(body.data.policies).toEqual({
+            hasDeliveryInfo: false,
+            hasReturnPolicy: true,
+            hasTerms: true,
+            hasPrivacyPolicy: false,
+        })
+        // The long columns are never selected on this route.
+        expect(JSON.stringify(body.data)).not.toContain('returnPolicy')
+    })
+
+    it('treats a store row with no policy columns as having no policy pages', async () => {
+        mockPrisma.store.findUnique.mockResolvedValueOnce(STORE_ROW)
+        mockPrisma.$queryRaw.mockResolvedValueOnce([])
+
+        const res = await get(app, '/api/storefront/tds')
+        expect(res.status).toBe(200)
+        const body = await json<ApiResponse<any>>(res)
+        expect(body.data.policies.hasTerms).toBe(false)
+    })
+
+    it('orders categories by the merchant’s arrangement and resolves their artwork', async () => {
+        mockPrisma.store.findUnique.mockResolvedValueOnce(STORE_ROW)
+        policyRow()
+        mockPrisma.category.findMany.mockResolvedValueOnce([
+            {
+                id: 'cat-1',
+                name: 'Shirts',
+                slug: 'shirts',
+                image_url: `media:${BANNER_IMAGE_ID}`,
+                _count: { products: 3 },
+            },
+            {
+                id: 'cat-2',
+                name: 'Empty',
+                slug: 'empty',
+                image_url: null,
+                _count: { products: 0 },
+            },
+        ])
+
+        const res = await get(app, '/api/storefront/tds')
+        const body = await json<ApiResponse<any>>(res)
+
+        expect(mockPrisma.category.findMany.mock.calls[0]?.[0].orderBy).toEqual([
+            { position: 'asc' },
+            { name: 'asc' },
+        ])
+        // A category with nothing purchasable in it is not a place to send a shopper.
+        expect(body.data.categories).toHaveLength(1)
+        expect(body.data.categories[0].imageUrl).toContain(`/api/media/${BANNER_IMAGE_ID}`)
+    })
+})
+
+describe('GET /api/storefront/:slug/policies', () => {
+    it('404s an unknown store before reading anything', async () => {
+        mockPrisma.store.findUnique.mockResolvedValueOnce(null)
+
+        const res = await get(app, '/api/storefront/nope/policies')
+        expect(res.status).toBe(404)
+    })
+
+    it('returns the merchant’s published pages', async () => {
+        mockPrisma.store.findUnique
+            .mockResolvedValueOnce(STORE_ROW)
+            .mockResolvedValueOnce({
+                delivery_info: 'Inside Dhaka: 1–2 days.',
+                return_policy: null,
+                terms: null,
+                privacy_policy: null,
+            })
+
+        const res = await get(app, '/api/storefront/tds/policies')
+        expect(res.status).toBe(200)
+
+        const body = await json<ApiResponse<any>>(res)
+        expect(body.data).toEqual({
+            deliveryInfo: 'Inside Dhaka: 1–2 days.',
+            returnPolicy: null,
+            terms: null,
+            privacyPolicy: null,
+        })
+    })
+
+    it('reads the store found by slug, not an id from the caller', async () => {
+        mockPrisma.store.findUnique.mockResolvedValueOnce(STORE_ROW).mockResolvedValueOnce(null)
+
+        await get(app, '/api/storefront/tds/policies')
+
+        expect(mockPrisma.store.findUnique.mock.calls[1]?.[0].where).toEqual({ id: STORE_ID })
+    })
+
+    it('caches hard, since policy text changes about once a year', async () => {
+        mockPrisma.store.findUnique.mockResolvedValueOnce(STORE_ROW).mockResolvedValueOnce(null)
+
+        const res = await get(app, '/api/storefront/tds/policies')
+        expect(res.headers.get('Cache-Control')).toContain('s-maxage=300')
     })
 })

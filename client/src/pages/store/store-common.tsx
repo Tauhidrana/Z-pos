@@ -102,3 +102,32 @@ export function StorePageHeader({
         </div>
     );
 }
+
+/**
+ * A labelled form row. Lives here rather than in one page because the settings
+ * form and the banner editor lay out identically, and two copies is how the
+ * hint and error styling drift apart.
+ */
+export function Field({
+    label,
+    hint,
+    error,
+    children,
+}: {
+    label: string;
+    hint?: string;
+    error?: string;
+    children: React.ReactNode;
+}) {
+    return (
+        <div>
+            <label className="text-sm font-medium">{label}</label>
+            <div className="mt-1.5">{children}</div>
+            {error ? (
+                <p className="mt-1 text-xs text-destructive">{error}</p>
+            ) : hint ? (
+                <p className="mt-1 break-all text-xs text-muted-foreground">{hint}</p>
+            ) : null}
+        </div>
+    );
+}

@@ -3,22 +3,36 @@ import { zodUUID } from "./helper";
 import { imageRefSchema } from "./media.schema";
 
 
+/**
+ * The shelf price of one variant, in taka.
+ *
+ * Written once and shared by every route that sets a price — creating a
+ * product, adding a variant to it later, and editing one — so the three cannot
+ * drift into disagreeing about what a valid price is.
+ */
+export const sellPriceSchema = z
+    .number()
+    .min(0, "Price cannot be negative")
+    .refine((v) => Number(v.toFixed(2)) === v, "Maximum 2 decimal places");
+
+/** Opening stock for a variant that is being created. */
+export const openingStockSchema = z
+    .number()
+    .int("Stock must be a whole number")
+    .min(0, "Stock cannot be negative");
+
 const productVariant = z.object({
     color: z.string().optional(),
     size: z.string().optional(),
     // A new product can arrive with stock already on the shelf. Keep this on
     // the variant because colour/size variants are counted independently.
-    stock: z.number().int("Stock must be a whole number").min(0, "Stock cannot be negative").default(0),
+    stock: openingStockSchema.default(0),
     // Opening stock with no price is stock that cannot be sold: the till has no
     // figure to ring up and the online store withholds the product rather than
     // quote it at zero. Optional, because a product entered before its pricing
     // is decided is legitimate — it just will not go on sale until a purchase
     // or this field gives it a price.
-    sell_price: z
-        .number()
-        .min(0, "Price cannot be negative")
-        .refine((v) => Number(v.toFixed(2)) === v, "Maximum 2 decimal places")
-        .optional(),
+    sell_price: sellPriceSchema.optional(),
 });
 
 /** Trim to undefined so "  " never counts as a filled attribute. */
@@ -100,6 +114,15 @@ export const updateProductVariantSchema = z.object({
     id: z.string().uuid(),
     color: z.string().optional(),
     size: z.string().optional(),
+    /**
+     * The shelf price. Null clears it, which marks the variant as not yet
+     * priced — the till and the storefront both withhold it rather than sell at
+     * zero, which is the honest reading of "no price has been decided".
+     *
+     * Omitting the field leaves the current price alone, so an edit that only
+     * renames a colour cannot silently wipe the price.
+     */
+    sell_price: sellPriceSchema.nullable().optional(),
 })
 
 export type UpdateProductVariant = z.infer<typeof updateProductVariantSchema>
@@ -108,6 +131,14 @@ export const createProductVariantSchemaSepa = z.object({
     productId: zodUUID,
     color: z.string().optional(),
     size: z.string().optional(),
+    /**
+     * Opening stock and price, exactly as `createProductSchema` accepts them.
+     * A variant added a week after the product is the same kind of thing as one
+     * added with it; without these it arrives at zero stock and no price, and
+     * the merchant has no screen anywhere that can give it either.
+     */
+    stock: openingStockSchema.optional(),
+    sell_price: sellPriceSchema.optional(),
 })
 
 export type CreateProductVariantSepa = z.infer<typeof createProductVariantSchemaSepa>

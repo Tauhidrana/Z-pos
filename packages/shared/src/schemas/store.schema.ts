@@ -111,6 +111,31 @@ export const createStoreSchema = z.object({
 
 export type CreateStore = z.infer<typeof createStoreSchema>;
 
+/** Long-form policy text rendered as its own storefront page. */
+const optionalLongText = (max: number) =>
+    z.preprocess(
+        (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+        z.string().trim().max(max).nullable().optional(),
+    );
+
+/**
+ * A latitude or longitude, or null to clear the pin.
+ *
+ * Range-checked rather than merely numeric: a transposed pair (lat 90.4, lng
+ * 23.8 — Dhaka's coordinates the wrong way round) is the single most common way
+ * a map pin ends up in the Arctic, and it is cheap to refuse here.
+ */
+const optionalCoordinate = (limit: number, label: string) =>
+    z.preprocess(
+        (v) => (v === "" || v === null || v === undefined ? (v === undefined ? undefined : null) : Number(v)),
+        z
+            .number()
+            .min(-limit, `${label} is out of range`)
+            .max(limit, `${label} is out of range`)
+            .nullable()
+            .optional(),
+    );
+
 export const updateStoreSchema = z.object({
     name: z.string().trim().min(2, "Store name is required").max(80).optional(),
     slug: storeSlugSchema.optional(),
@@ -124,6 +149,22 @@ export const updateStoreSchema = z.object({
     facebook_url: optionalUrl,
     instagram_url: optionalUrl,
     whatsapp_number: optionalText(20),
+
+    // ── Business location ────────────────────────────────────────────────────
+    latitude: optionalCoordinate(90, "Latitude"),
+    longitude: optionalCoordinate(180, "Longitude"),
+
+    // ── Published policy pages ───────────────────────────────────────────────
+    delivery_info: optionalLongText(4000),
+    return_policy: optionalLongText(8000),
+    terms: optionalLongText(20_000),
+    privacy_policy: optionalLongText(20_000),
+    opening_hours: optionalText(200),
+
+    // ── SEO ──────────────────────────────────────────────────────────────────
+    meta_title: optionalText(70),
+    meta_description: optionalText(180),
+
     delivery_charge: money(10_000).optional(),
     free_delivery_over: optionalMoney,
     min_order_amount: money(1_000_000).optional(),
@@ -176,3 +217,77 @@ export const updateStoreVariantSchema = z.object({
 });
 
 export type UpdateStoreVariant = z.infer<typeof updateStoreVariantSchema>;
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Storefront banners
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * How many slides a hero carousel can hold.
+ *
+ * Not an arbitrary limit: past about five, shoppers stop swiping and the extra
+ * artwork is weight nobody sees. Enforced server-side, and surfaced in the
+ * dashboard so the merchant is told before they upload rather than after.
+ */
+export const MAX_STORE_BANNERS = 5;
+
+/**
+ * The aspect ratio banner artwork is composed for, and the minimum width that
+ * still looks sharp on a desktop hero.
+ *
+ * Exported so the upload UI can check a chosen file and warn before it is
+ * saved. A portrait photograph dropped into a 3:1 slot is the fastest way for a
+ * merchant to wreck their own homepage, and the fix — telling them at the
+ * moment they pick the file — costs nothing.
+ */
+export const BANNER_ASPECT_RATIO = 3 / 1;
+export const BANNER_MIN_WIDTH = 1200;
+/** How far from 3:1 an image may stray before it is worth warning about. */
+export const BANNER_ASPECT_TOLERANCE = 0.45;
+
+/**
+ * Where a banner's button leads.
+ *
+ * Either a storefront-relative path or an absolute http(s) URL, and nothing
+ * else. The explicit rejection matters: a banner link is merchant-supplied text
+ * rendered into an `href`, so `javascript:` and `data:` URLs would otherwise be
+ * a stored-XSS hole on every shopper's homepage.
+ */
+export const bannerLinkSchema = z
+    .string()
+    .trim()
+    .max(2048)
+    .refine(
+        (v) => /^\/[^\s]*$/.test(v) || /^https?:\/\/\S+$/i.test(v),
+        "Use a shop path like /category/shoes, or a full https:// link",
+    );
+
+const optionalBannerLink = z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? null : v),
+    bannerLinkSchema.nullable().optional(),
+);
+
+export const createBannerSchema = z.object({
+    image_url: imageRefSchema,
+    title: optionalText(80),
+    subtitle: optionalText(160),
+    button_text: optionalText(30),
+    button_link: optionalBannerLink,
+    is_active: z.boolean().optional(),
+});
+
+export type CreateBanner = z.infer<typeof createBannerSchema>;
+
+export const updateBannerSchema = createBannerSchema.partial().extend({
+    id: zodUUID,
+});
+
+export type UpdateBanner = z.infer<typeof updateBannerSchema>;
+
+/** The full ordering, sent as one list — see the controller for why. */
+export const reorderBannersSchema = z.object({
+    ids: z.array(zodUUID).min(1, "Nothing to reorder").max(MAX_STORE_BANNERS),
+});
+
+export type ReorderBanners = z.infer<typeof reorderBannersSchema>;

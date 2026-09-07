@@ -25,6 +25,12 @@ import {
   type UpdateCategory,
 } from "@myapp/shared/schemas/category.schema";
 import type { FlatCategory } from "@/types";
+import { BannerImagePicker } from "@/components/banner-image-picker";
+import {
+  CATEGORY_IMAGE_ASPECT_RATIO,
+  CATEGORY_IMAGE_ASPECT_TOLERANCE,
+  CATEGORY_IMAGE_MIN_WIDTH,
+} from "@myapp/shared/schemas/category.schema";
 
 // ─── Outer guard ──────────────────────────────────────────────────────────────
 // Dialog shell stays mounted for open/close animation.
@@ -87,6 +93,7 @@ function CategoryUpdateForm({
       id: "",
       name: "",
       description: "",
+      image_url: "",
     },
   });
 
@@ -107,6 +114,7 @@ function CategoryUpdateForm({
       id: category.id,
       name: category.name,
       description: category.description ?? "",
+      image_url: category.image_url ?? "",
     });
   }, [categoryId, categories, form]);
 
@@ -146,15 +154,44 @@ function CategoryUpdateForm({
 
           <FormField
             control={form.control}
+            name="image_url"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <BannerImagePicker
+                    label="Category image"
+                    aspectClass="aspect-square max-w-[180px]"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    expect={{
+                      ratio: CATEGORY_IMAGE_ASPECT_RATIO,
+                      tolerance: CATEGORY_IMAGE_ASPECT_TOLERANCE,
+                      minWidth: CATEGORY_IMAGE_MIN_WIDTH,
+                      label: "Category images",
+                    }}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
             name="description"
             render={({ field }) => (
               <FormItem>
                 <FormLabel>Description</FormLabel>
                 <FormControl>
+                  {/* `?? ""` because the schema treats an emptied field as
+                      null — "clear this" — while a textarea must stay a
+                      controlled string or React switches it to uncontrolled
+                      mid-edit. */}
                   <Textarea
                     placeholder="Enter category description"
                     className="min-h-24 resize-none"
                     {...field}
+                    value={field.value ?? ""}
                   />
                 </FormControl>
                 <FormMessage />

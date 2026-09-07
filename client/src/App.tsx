@@ -28,6 +28,7 @@ const BarcodeGenerator = lazy(() => import("@/pages/BarcodeGenerator"));
 const OnlineStore = lazy(() => import("@/pages/store/OnlineStore"));
 const StoreSettings = lazy(() => import("@/pages/store/StoreSettings"));
 const StoreProducts = lazy(() => import("@/pages/store/StoreProducts"));
+const StoreBanners = lazy(() => import("@/pages/store/StoreBanners"));
 const StoreOrders = lazy(() => import("@/pages/store/StoreOrders"));
 const Login = lazy(() => import("@/pages/Login"));
 const NotFound = lazy(() => import("@/pages/not-found"));
@@ -117,6 +118,7 @@ function ProtectedRouter() {
                 order, so a bare "/store" above these would swallow them. */}
             <Route path="/store/settings" component={StoreSettings} />
             <Route path="/store/products" component={StoreProducts} />
+            <Route path="/store/banners" component={StoreBanners} />
             <Route path="/store/orders" component={StoreOrders} />
             <Route path="/store" component={OnlineStore} />
             <Route path="/admin">

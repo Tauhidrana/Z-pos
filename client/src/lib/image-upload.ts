@@ -121,3 +121,44 @@ export function imageSrc(ref: string | null | undefined): string | null {
     // Absolute URLs predate uploads; still rendered, no longer offered.
     return /^https?:\/\//i.test(ref) ? ref : null;
 }
+
+
+/**
+ * Check a chosen file against the shape a slot expects, before it is uploaded.
+ *
+ * Returns a warning rather than an error on purpose. A merchant's banner
+ * photograph is theirs, and refusing it outright over an aspect ratio is the
+ * kind of software that makes people give up on listing anything — but a
+ * portrait snapshot dropped into a 3:1 hero really will be cropped to a strip
+ * of someone's shirt, and they deserve to know that while they can still pick a
+ * different file.
+ *
+ * Reads the image's real dimensions rather than trusting the filename, and
+ * resolves to null when everything is fine.
+ */
+export async function checkImageShape(
+    file: File,
+    expect: { ratio: number; tolerance: number; minWidth: number; label: string },
+): Promise<string | null> {
+    let image: HTMLImageElement;
+    try {
+        image = await loadImage(await readAsDataUrl(file));
+    } catch {
+        // Unreadable files are the uploader's problem to report, not this
+        // check's — it would otherwise produce two errors for one bad file.
+        return null;
+    }
+
+    if (image.width < expect.minWidth) {
+        return `This image is ${image.width}px wide. ${expect.label} look sharpest at ${expect.minWidth}px or wider.`;
+    }
+
+    const ratio = image.width / image.height;
+    if (Math.abs(ratio - expect.ratio) > expect.tolerance) {
+        const shape =
+            ratio < expect.ratio ? "taller" : "wider";
+        return `This image is ${shape} than ${expect.label.toLowerCase()} are shown at, so parts of it will be cropped.`;
+    }
+
+    return null;
+}

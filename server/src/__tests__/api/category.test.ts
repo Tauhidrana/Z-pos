@@ -113,3 +113,147 @@ describe('DELETE /api/categories/delete', () => {
         expect(mockPrisma.category.delete.mock.calls.length).toBe(1)
     })
 })
+
+describe('category slugs', () => {
+    /** No name clash, and then no slug clash. */
+    function noClashes() {
+        mockPrisma.category.findFirst.mockResolvedValue(null)
+    }
+
+    it('strips punctuation instead of leaving it in the URL', async () => {
+        noClashes()
+
+        await post(app, '/api/categories/create', { name: "Men's / Women's" })
+
+        // The old inline version produced "men's-/-women's", which cannot
+        // appear in a URL without being escaped.
+        expect(mockPrisma.category.create.mock.calls[0]?.[0].data.slug).toBe('men-s-women-s')
+    })
+
+    it('folds accents to plain ASCII rather than dropping the letters', async () => {
+        noClashes()
+
+        await post(app, '/api/categories/create', { name: 'Café Crème' })
+
+        expect(mockPrisma.category.create.mock.calls[0]?.[0].data.slug).toBe('cafe-creme')
+    })
+
+    it('gives a wholly non-Latin name a usable slug instead of an empty one', async () => {
+        noClashes()
+
+        await post(app, '/api/categories/create', { name: 'পোশাক' })
+
+        const slug = mockPrisma.category.create.mock.calls[0]?.[0].data.slug
+        // An empty slug used to be written, so the second Bengali category a
+        // merchant added collided on the shop's unique (shop_id, slug) index.
+        expect(slug).toBe('category')
+        expect(slug.length).toBeGreaterThan(0)
+    })
+
+    it('walks past a slug another category already holds', async () => {
+        // Name check passes; the first slug candidate is taken, the second free.
+        mockPrisma.category.findFirst
+            .mockResolvedValueOnce(null)
+            .mockResolvedValueOnce({ id: 'other' })
+            .mockResolvedValueOnce(null)
+
+        await post(app, '/api/categories/create', { name: 'Shoes' })
+
+        expect(mockPrisma.category.create.mock.calls[0]?.[0].data.slug).toBe('shoes-2')
+    })
+
+    it('re-slugs on a rename', async () => {
+        mockPrisma.category.findFirst
+            .mockResolvedValueOnce({ id: CATEGORY_ID, name: 'Old Name' })
+            .mockResolvedValueOnce(null)
+
+        await patch(app, '/api/categories/update', { id: CATEGORY_ID, name: 'New Name' })
+
+        expect(mockPrisma.category.update.mock.calls[0]?.[0].data.slug).toBe('new-name')
+    })
+
+    it('leaves a live storefront URL alone when only the description changed', async () => {
+        mockPrisma.category.findFirst.mockResolvedValueOnce({
+            id: CATEGORY_ID,
+            name: 'Shoes',
+        })
+
+        await patch(app, '/api/categories/update', {
+            id: CATEGORY_ID,
+            description: 'Everything for your feet',
+        })
+
+        const data = mockPrisma.category.update.mock.calls[0]?.[0].data
+        expect('slug' in data).toBe(false)
+    })
+
+    it('does not re-slug when the name is submitted unchanged', async () => {
+        mockPrisma.category.findFirst.mockResolvedValueOnce({
+            id: CATEGORY_ID,
+            name: 'Shoes',
+        })
+
+        await patch(app, '/api/categories/update', { id: CATEGORY_ID, name: 'Shoes' })
+
+        expect('slug' in mockPrisma.category.update.mock.calls[0]?.[0].data).toBe(false)
+    })
+
+    it('excludes the category itself when checking its new slug', async () => {
+        mockPrisma.category.findFirst
+            .mockResolvedValueOnce({ id: CATEGORY_ID, name: 'Old Name' })
+            .mockResolvedValueOnce(null)
+
+        await patch(app, '/api/categories/update', { id: CATEGORY_ID, name: 'New Name' })
+
+        const where = mockPrisma.category.findFirst.mock.calls[1]?.[0].where
+        expect(where.id).toEqual({ not: CATEGORY_ID })
+    })
+})
+
+describe('category artwork', () => {
+    const IMAGE_ID = '550e8400-e29b-41d4-a716-446655440012'
+    const IMAGE_REF = `media:${IMAGE_ID}`
+
+    it('refuses an image belonging to another shop', async () => {
+        mockPrisma.category.findFirst.mockResolvedValue(null)
+        mockPrisma.mediaAsset.findMany.mockResolvedValueOnce([])
+
+        const res = await post(app, '/api/categories/create', {
+            name: 'Shoes',
+            image_url: IMAGE_REF,
+        })
+
+        expect(res.status).toBe(422)
+        expect(mockPrisma.mediaAsset.findMany.mock.calls[0]?.[0].where.shop_id).toBe(
+            'test-shop-uuid',
+        )
+        expect(mockPrisma.category.create.mock.calls.length).toBe(0)
+    })
+
+    it('stores artwork the shop owns', async () => {
+        mockPrisma.category.findFirst.mockResolvedValue(null)
+        mockPrisma.mediaAsset.findMany.mockResolvedValueOnce([{ id: IMAGE_ID }])
+
+        const res = await post(app, '/api/categories/create', {
+            name: 'Shoes',
+            image_url: IMAGE_REF,
+        })
+
+        expect(res.status).toBe(201)
+        expect(mockPrisma.category.create.mock.calls[0]?.[0].data.image_url).toBe(IMAGE_REF)
+    })
+
+    it('clears the artwork when the field is sent empty', async () => {
+        mockPrisma.category.findFirst.mockResolvedValueOnce({ id: CATEGORY_ID, name: 'Shoes' })
+
+        const res = await patch(app, '/api/categories/update', {
+            id: CATEGORY_ID,
+            image_url: '',
+        })
+
+        expect(res.status).toBe(200)
+        expect(mockPrisma.category.update.mock.calls[0]?.[0].data.image_url).toBeNull()
+        // Clearing is not an attach, so there is nothing to ownership-check.
+        expect(mockPrisma.mediaAsset.findMany.mock.calls.length).toBe(0)
+    })
+})

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import {
+    Clock,
     Facebook,
     Home,
     Instagram,
@@ -14,7 +15,7 @@ import {
     Store as StoreIcon,
     X,
 } from "lucide-react";
-import type { StoreCategory, StorePublic } from "@myapp/shared";
+import type { StoreCategory, StorePolicyFlags, StorePublic } from "@myapp/shared";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,11 +70,13 @@ function StoreLogo({ store, className }: { store: StorePublic; className?: strin
 export function StoreShell({
     store,
     categories,
+    policies,
     basePath,
     children,
 }: {
     store: StorePublic;
     categories: StoreCategory[];
+    policies: StorePolicyFlags;
     basePath: string;
     children: React.ReactNode;
 }) {
@@ -278,7 +281,12 @@ export function StoreShell({
                 {children}
             </main>
 
-            <StoreFooter store={store} categories={categories} basePath={basePath} />
+            <StoreFooter
+                store={store}
+                categories={categories}
+                policies={policies}
+                basePath={basePath}
+            />
 
             <nav
                 aria-label="Primary"
@@ -307,15 +315,50 @@ export function StoreShell({
     );
 }
 
+/**
+ * A "show me this shop on a map" link, or null when the merchant has not
+ * dropped a pin.
+ *
+ * Google's universal maps URL rather than a geo: URI or an embedded map. A
+ * `geo:` link opens nothing on a desktop and is refused outright by some mobile
+ * browsers, and an embedded map is a third-party script and an API key on every
+ * shop front — for a line of text that a shopper taps perhaps once. This form
+ * hands off to whichever map app the phone already has.
+ *
+ * Both coordinates are required: half a pin points at the equator or the
+ * meridian, which is worse than no link at all.
+ */
+function directionsHref(store: StorePublic): string | null {
+    const { latitude, longitude } = store;
+    if (latitude === null || longitude === null) return null;
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+    return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+}
+
 function StoreFooter({
     store,
     categories,
+    policies,
     basePath,
 }: {
     store: StorePublic;
     categories: StoreCategory[];
+    policies: StorePolicyFlags;
     basePath: string;
 }) {
+    const directions = directionsHref(store);
+
+    // Only pages the merchant has actually written. A footer link that leads to
+    // an empty "Return policy" is worse than no link: a shopper deciding
+    // whether to trust an unfamiliar shop with a cash order reads that as the
+    // shop having no policy at all.
+    const policyLinks = [
+        policies.hasDeliveryInfo && { href: "/delivery", label: "Delivery" },
+        policies.hasReturnPolicy && { href: "/returns", label: "Returns" },
+        policies.hasTerms && { href: "/terms", label: "Terms" },
+        policies.hasPrivacyPolicy && { href: "/privacy", label: "Privacy" },
+    ].filter((link): link is { href: string; label: string } => Boolean(link));
     const socials = [
         store.facebookUrl && { href: store.facebookUrl, icon: Facebook, label: "Facebook" },
         store.instagramUrl && { href: store.instagramUrl, icon: Instagram, label: "Instagram" },
@@ -401,10 +444,29 @@ function StoreFooter({
                                 </a>
                             </li>
                         )}
-                        {store.address && (
+                        {(store.address || directions) && (
                             <li className="flex items-start gap-2">
                                 <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
-                                <span>{store.address}</span>
+                                {directions ? (
+                                    // Opens the phone's own map app, which is
+                                    // the only form of "where is this shop"
+                                    // that survives being read out to a rider.
+                                    <a
+                                        href={directions}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="transition-colors hover:text-foreground"
+                                    >
+                                        {store.address ?? "Get directions"}
+                                        {store.address && (
+                                            <span className="ml-1.5 whitespace-nowrap text-xs underline underline-offset-2">
+                                                Directions
+                                            </span>
+                                        )}
+                                    </a>
+                                ) : (
+                                    <span>{store.address}</span>
+                                )}
                             </li>
                         )}
                         <li className="flex items-start gap-2">
@@ -416,7 +478,33 @@ function StoreFooter({
                                 Track your order
                             </Link>
                         </li>
+                        {store.openingHours && (
+                            <li className="flex items-start gap-2">
+                                <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+                                <span>{store.openingHours}</span>
+                            </li>
+                        )}
                     </ul>
+
+                    {policyLinks.length > 0 && (
+                        <>
+                            <h4 className="mt-6 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                Information
+                            </h4>
+                            <ul className="mt-3 space-y-2 text-sm">
+                                {policyLinks.map((link) => (
+                                    <li key={link.href}>
+                                        <Link
+                                            href={link.href}
+                                            className="text-muted-foreground transition-colors hover:text-foreground"
+                                        >
+                                            {link.label}
+                                        </Link>
+                                    </li>
+                                ))}
+                            </ul>
+                        </>
+                    )}
                 </div>
             </div>
 

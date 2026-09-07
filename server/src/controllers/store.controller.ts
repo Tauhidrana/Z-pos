@@ -37,6 +37,15 @@ const STORE_SELECT = {
     facebook_url: true,
     instagram_url: true,
     whatsapp_number: true,
+    latitude: true,
+    longitude: true,
+    opening_hours: true,
+    delivery_info: true,
+    return_policy: true,
+    terms: true,
+    privacy_policy: true,
+    meta_title: true,
+    meta_description: true,
     delivery_charge: true,
     free_delivery_over: true,
     min_order_amount: true,
@@ -67,6 +76,15 @@ function toMerchantStore(
         facebookUrl: store.facebook_url,
         instagramUrl: store.instagram_url,
         whatsappNumber: store.whatsapp_number,
+        latitude: store.latitude === null ? null : Number(store.latitude),
+        longitude: store.longitude === null ? null : Number(store.longitude),
+        openingHours: store.opening_hours,
+        deliveryInfo: store.delivery_info,
+        returnPolicy: store.return_policy,
+        terms: store.terms,
+        privacyPolicy: store.privacy_policy,
+        metaTitle: store.meta_title,
+        metaDescription: store.meta_description,
         deliveryCharge: Number(store.delivery_charge),
         freeDeliveryOver:
             store.free_delivery_over === null ? null : Number(store.free_delivery_over),
@@ -254,6 +272,35 @@ export const StoreController = {
             }),
             ...(body.theme_color !== undefined && { theme_color: body.theme_color }),
             ...(body.is_active !== undefined && { is_active: body.is_active }),
+
+            // ── Business location ────────────────────────────────────────────
+            ...(body.latitude !== undefined && {
+                latitude: body.latitude === null ? null : new Decimal(body.latitude),
+            }),
+            ...(body.longitude !== undefined && {
+                longitude: body.longitude === null ? null : new Decimal(body.longitude),
+            }),
+
+            // ── Published policy pages ───────────────────────────────────────
+            ...(body.delivery_info !== undefined && {
+                delivery_info: optional(body.delivery_info),
+            }),
+            ...(body.return_policy !== undefined && {
+                return_policy: optional(body.return_policy),
+            }),
+            ...(body.terms !== undefined && { terms: optional(body.terms) }),
+            ...(body.privacy_policy !== undefined && {
+                privacy_policy: optional(body.privacy_policy),
+            }),
+            ...(body.opening_hours !== undefined && {
+                opening_hours: optional(body.opening_hours),
+            }),
+
+            // ── SEO ──────────────────────────────────────────────────────────
+            ...(body.meta_title !== undefined && { meta_title: optional(body.meta_title) }),
+            ...(body.meta_description !== undefined && {
+                meta_description: optional(body.meta_description),
+            }),
         };
 
         try {

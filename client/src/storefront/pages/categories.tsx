@@ -44,15 +44,37 @@ export default function CategoriesPage({
                         <Link
                             key={category.id}
                             href={`/category/${category.slug}`}
-                            className="flex flex-col justify-between rounded-xl border border-card-border bg-card p-4 transition-shadow hover:shadow-md"
+                            className="group overflow-hidden rounded-xl border border-card-border bg-card transition-shadow hover:shadow-md"
                         >
-                            <span className="text-sm font-medium leading-snug">
-                                {category.name}
-                            </span>
-                            <span className="mt-4 font-mono text-xs text-muted-foreground">
-                                {category.productCount}{" "}
-                                {category.productCount === 1 ? "item" : "items"}
-                            </span>
+                            {/* Square artwork, or a typographic panel when the
+                                merchant has not uploaded any — never an empty
+                                grey box, which reads as a broken page. */}
+                            <div className="aspect-square w-full overflow-hidden bg-muted">
+                                {category.imageUrl ? (
+                                    <img
+                                        src={category.imageUrl}
+                                        alt=""
+                                        loading="lazy"
+                                        decoding="async"
+                                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                    />
+                                ) : (
+                                    <div className="flex h-full w-full items-center justify-center bg-accent/40 p-3 text-center">
+                                        <span className="font-serif text-base font-semibold leading-tight text-accent-foreground">
+                                            {category.name}
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="p-3">
+                                <p className="truncate text-sm font-medium leading-snug">
+                                    {category.name}
+                                </p>
+                                <p className="mt-0.5 font-mono text-xs text-muted-foreground">
+                                    {category.productCount}{" "}
+                                    {category.productCount === 1 ? "item" : "items"}
+                                </p>
+                            </div>
                         </Link>
                     ))}
                 </div>

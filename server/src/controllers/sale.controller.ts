@@ -11,7 +11,13 @@ import { AppError } from "@/utils/AppError";
 
 interface LineItem {
     variantId: string;
-    barcodeId: string;
+    /**
+     * The label this line was scanned from, when there was one.
+     *
+     * Carried for traceability only — `sale_items` has no barcode column, and
+     * never had one, so nothing downstream depends on it being present.
+     */
+    barcodeId?: string;
     quantity: number;
     unitPrice: number;
     discountAmount: number;
@@ -248,14 +254,25 @@ export const SaleController = {
         const { checkout } = body;
 
         // ── 1. Resolve barcodes ────────────────────────────────────────────────
-        const incomingBarcodes = body.cartItems.map((i) => i.barcode);
+        //
+        // Only the lines that were actually scanned. A cart line may have no
+        // barcode: one is issued only against a purchase batch, and opening
+        // stock — entered when the product was created, or on a variant added
+        // by hand — never goes through one. Those lines are priced from the
+        // variant's own shelf price in step 4. Either way the price is decided
+        // here on the server; the client never sends one.
+        const incomingBarcodes = body.cartItems
+            .map((i) => i.barcode)
+            .filter((code): code is string => Boolean(code));
 
-        const barcodeRecords = await prisma.barcode.findMany({
-            where: { code: { in: incomingBarcodes } },
-            select: { id: true, code: true },
-        });
+        const barcodeRecords = incomingBarcodes.length === 0
+            ? []
+            : await prisma.barcode.findMany({
+                where: { code: { in: incomingBarcodes } },
+                select: { id: true, code: true },
+            });
 
-        if (barcodeRecords.length !== incomingBarcodes.length) {
+        if (barcodeRecords.length !== new Set(incomingBarcodes).size) {
             const found = new Set(barcodeRecords.map((b) => b.code));
             const missing = incomingBarcodes.filter((code) => !found.has(code));
             return sendError(c, `Barcodes not found: ${missing.join(", ")}`, "BARCODE_NOT_FOUND", 422);
@@ -266,17 +283,19 @@ export const SaleController = {
         const barcodeIds = barcodeRecords.map((b) => b.id);
 
         // ── 2. Resolve allocations ─────────────────────────────────────────────
-        const allocations = await prisma.variantBarcodeAllocation.findMany({
-            where: {
-                barcode_id: { in: barcodeIds },
-                variant: { product: { shop_id: shopId } },
-            },
-            select: {
-                barcode_id: true,
-                variant_id: true,
-                purchaseItem: { select: { sell_price: true } },
-            },
-        });
+        const allocations = barcodeIds.length === 0
+            ? []
+            : await prisma.variantBarcodeAllocation.findMany({
+                where: {
+                    barcode_id: { in: barcodeIds },
+                    variant: { product: { shop_id: shopId } },
+                },
+                select: {
+                    barcode_id: true,
+                    variant_id: true,
+                    purchaseItem: { select: { sell_price: true } },
+                },
+            });
 
         if (allocations.length !== barcodeIds.length) {
             const found = new Set(allocations.map((a) => a.barcode_id));
@@ -292,6 +311,34 @@ export const SaleController = {
         }
 
         const allocationByBarcodeId = new Map(allocations.map((a) => [a.barcode_id, a]));
+
+        // ── 2b. Shelf prices for the unscanned lines ───────────────────────────
+        //
+        // Scoped to this shop, so a caller quoting another merchant's variant id
+        // gets no price and the sale is refused rather than priced from a row
+        // they cannot see.
+        const unscannedVariantIds = [
+            ...new Set(
+                body.cartItems.filter((i) => !i.barcode).map((i) => i.variantId),
+            ),
+        ];
+
+        const shelfPriceByVariantId = new Map<string, Decimal>();
+        if (unscannedVariantIds.length > 0) {
+            const pricedVariants = await prisma.productVariant.findMany({
+                where: {
+                    id: { in: unscannedVariantIds },
+                    product: { shop_id: shopId },
+                },
+                select: { id: true, last_sell_price: true },
+            });
+
+            for (const variant of pricedVariants) {
+                if (variant.last_sell_price !== null) {
+                    shelfPriceByVariantId.set(variant.id, variant.last_sell_price);
+                }
+            }
+        }
 
         // ── 3. Aggregate quantities per variant ────────────────────────────────
         const qtyByVariantId = new Map<string, number>();
@@ -309,14 +356,31 @@ export const SaleController = {
         const lineItems: LineItem[] = [];
 
         for (const item of body.cartItems) {
-            const barcodeId = barcodeCodeToId.get(item.barcode)!;
-            const allocation = allocationByBarcodeId.get(barcodeId)!;
-            const sellPrice = +Number(allocation.purchaseItem.sell_price).toFixed(2);
+            // A scanned line is priced from the batch its label belongs to,
+            // exactly as before. An unscanned one is priced from the variant's
+            // shelf price. Both come from the database, never from the request.
+            const barcodeId = item.barcode ? barcodeCodeToId.get(item.barcode) : undefined;
+            const allocation = barcodeId ? allocationByBarcodeId.get(barcodeId) : undefined;
+
+            const rawPrice = allocation
+                ? allocation.purchaseItem.sell_price
+                : shelfPriceByVariantId.get(item.variantId);
+
+            if (rawPrice === undefined) {
+                return sendError(
+                    c,
+                    "One of these items has no price yet. Set a price on the product page, or record a purchase for it.",
+                    "NO_PRICE",
+                    422
+                );
+            }
+
+            const sellPrice = +Number(rawPrice).toFixed(2);
 
             if (sellPrice <= 0) {
                 return sendError(
                     c,
-                    `Invalid sell price for barcode ${item.barcode}`,
+                    `Invalid sell price for ${item.barcode ?? "an unscanned item"}`,
                     "INVALID_PRICE",
                     422
                 );

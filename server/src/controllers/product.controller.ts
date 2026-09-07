@@ -5,7 +5,9 @@ import type { IdBody } from "@myapp/shared/schemas/helper";
 import { ProductService } from "@/services/product.service";
 import type { CartEntryProduct, ProductStatus, TProduct } from "@/types";
 import { sendError, sendSuccess } from "@/utils/response";
-import { BarcodeStatus } from "generated/prisma";
+import { BarcodeStatus, Prisma, StockDirection, StockMovementType } from "generated/prisma";
+import { Decimal } from "generated/prisma/runtime/client";
+import { variantLabel } from "@/lib/variant-name";
 import type { Context } from "hono";
 
 export const ProductController = {
@@ -85,6 +87,11 @@ export const ProductController = {
                 color: v.color ?? "",
                 size: v.size ?? "",
                 stock: v.stock_on_hand,
+                // The shelf price was being selected and then dropped here, so
+                // a merchant could type a price when creating a product and
+                // never see it again on any screen.
+                sellPrice:
+                    v.last_sell_price === null ? null : Number(v.last_sell_price),
             })),
         }
 
@@ -304,18 +311,58 @@ export const ProductController = {
             },
         });
 
-        if (!allocation) {
-            return sendError(c, "No active stock for this product", "NOT_FOUND", 404);
+        if (allocation) {
+            const { variant, purchaseItem, barcode } = allocation;
+
+            return sendSuccess(
+                c,
+                {
+                    variantId: variant.id,
+                    name: `${variant.product.name}${variant.name ? ` - ${variant.name}` : ""}`,
+                    price: Number(purchaseItem.sell_price),
+                    barcode: barcode.code,
+                    availableStock: variant.stock_on_hand,
+                } satisfies CartEntryProduct,
+                "Product cart item fetched successfully",
+                200,
+            );
         }
 
-        const { variant, purchaseItem, barcode } = allocation;
+        // No purchase batch behind this product. That is ordinary rather than
+        // exceptional — opening stock entered when the product was created, or
+        // a variant added by hand, never passes through a purchase and so never
+        // gets a barcode. Fall back to the variant's own shelf price, which is
+        // the same figure the online store already sells it at.
+        const priced = await prisma.productVariant.findFirst({
+            where: {
+                product_id: productId,
+                is_active: true,
+                product: { shop_id: c.get("shopId") as string },
+                last_sell_price: { not: null },
+            },
+            select: {
+                id: true,
+                name: true,
+                stock_on_hand: true,
+                last_sell_price: true,
+                product: { select: { name: true } },
+            },
+        });
+
+        if (!priced) {
+            return sendError(
+                c,
+                "This product has no price yet. Set one on the product page, or record a purchase.",
+                "NO_PRICE",
+                404,
+            );
+        }
 
         const result: CartEntryProduct = {
-            variantId: variant.id,
-            name: `${variant.product.name}${variant.name ? ` - ${variant.name}` : ""}`,
-            price: Number(purchaseItem.sell_price),
-            barcode: barcode.code,
-            availableStock: variant.stock_on_hand,
+            variantId: priced.id,
+            name: `${priced.product.name}${priced.name ? ` - ${priced.name}` : ""}`,
+            price: Number(priced.last_sell_price),
+            availableStock: priced.stock_on_hand,
         };
 
         return sendSuccess(c, result, "Product cart item fetched successfully", 200);
@@ -344,19 +391,57 @@ export const ProductController = {
             },
         });
 
-        if (!allocation) {
-            return sendError(c, "No active stock for this variant", "NOT_FOUND", 404);
+        if (allocation) {
+            const { variant, purchaseItem, barcode } = allocation;
+
+            return sendSuccess(
+                c,
+                {
+                    variantId: variant.id,
+                    name: `${variant.product.name}${variant.name ? ` - ${variant.name}` : ""}`,
+                    price: Number(purchaseItem.sell_price),
+                    barcode: barcode.code,
+                    availableStock: variant.stock_on_hand,
+                } satisfies CartEntryProduct,
+                "Variant cart item fetched successfully",
+                200,
+            );
         }
 
-        const { variant, purchaseItem, barcode } = allocation;
-        const availableStock = variant.stock_on_hand;
+        // Same fallback as the by-product lookup: no batch behind this variant
+        // is normal, and its shelf price is a real price.
+        const priced = await prisma.productVariant.findFirst({
+            where: {
+                id: variantId,
+                product: { shop_id: c.get("shopId") as string },
+            },
+            select: {
+                id: true,
+                name: true,
+                stock_on_hand: true,
+                last_sell_price: true,
+                product: { select: { name: true } },
+            },
+        });
+
+        if (!priced) {
+            return sendError(c, "Variant not found", "NOT_FOUND", 404);
+        }
+
+        if (priced.last_sell_price === null) {
+            return sendError(
+                c,
+                "This variant has no price yet. Set one on the product page, or record a purchase.",
+                "NO_PRICE",
+                404,
+            );
+        }
 
         const result: CartEntryProduct = {
-            variantId: variant.id,
-            name: `${variant.product.name}${variant.name ? ` - ${variant.name}` : ""}`,
-            price: Number(purchaseItem.sell_price),
-            barcode: barcode.code,
-            availableStock,
+            variantId: priced.id,
+            name: `${priced.product.name}${priced.name ? ` - ${priced.name}` : ""}`,
+            price: Number(priced.last_sell_price),
+            availableStock: priced.stock_on_hand,
         };
 
         return sendSuccess(c, result, "Variant cart item fetched successfully", 200);
@@ -364,28 +449,44 @@ export const ProductController = {
 
     async updateVariant(c: Context) {
         const body = c.get("validatedBody") as UpdateProductVariant;
-        const { id, color, size, } = body;
+        const { id, color, size, sell_price } = body;
 
-        if (!color && !size) {
-            return sendError(c, "Color or size is required", "BAD_REQUEST", 400);
+        // Price is an edit in its own right. The old guard demanded a colour or
+        // a size on every call, so the one field a merchant most often needs to
+        // change — what the thing costs — could not be changed at all on a
+        // plain product that has neither attribute.
+        if (color === undefined && size === undefined && sell_price === undefined) {
+            return sendError(c, "Nothing to update", "BAD_REQUEST", 400);
         }
 
         const variant = await prisma.productVariant.findFirst({
             where: { id, product: { shop_id: c.get("shopId") as string } },
+            select: { id: true, color: true, size: true },
         });
 
         if (!variant) {
             return sendError(c, "Variant not found", "NOT_FOUND", 404);
         }
 
-        const name = `${color?.trim() ? color?.trim().toUpperCase() : variant.color ? variant.color : ""} / ${size?.trim() ? size?.trim().toUpperCase() : variant.size ? variant.size.toUpperCase() : ""}`
+        // Rename against the attributes the variant will actually have, not
+        // only the ones in this request, or clearing one field would drop the
+        // other from the label.
+        const nextColor = color !== undefined ? color.trim() || null : variant.color;
+        const nextSize = size !== undefined ? size.trim() || null : variant.size;
 
-        const v = await prisma.productVariant.update({
+        await prisma.productVariant.update({
             where: { id },
             data: {
-                name,
-                ...(color && { color, }),
-                ...(size && { size }),
+                ...(color !== undefined && { color: nextColor }),
+                ...(size !== undefined && { size: nextSize }),
+                ...((color !== undefined || size !== undefined) && {
+                    name: variantLabel(nextColor, nextSize),
+                }),
+                // Null clears the price; omitted leaves it alone. A rename must
+                // never wipe what the variant sells for.
+                ...(sell_price !== undefined && {
+                    last_sell_price: sell_price === null ? null : new Decimal(sell_price),
+                }),
             },
         });
         return sendSuccess(c, {}, "Variant updated successfully", 200);
@@ -442,28 +543,77 @@ export const ProductController = {
 
     async createVariant(c: Context) {
         const body = c.get("validatedBody") as CreateProductVariantSepa;
-        const { productId, color, size } = body;
+        const { productId, color, size, stock, sell_price } = body;
+        const shopId = c.get("shopId") as string;
+        const userId = c.get("userId") as string;
 
         const product = await prisma.product.findFirst({
-            where: { id: productId, shop_id: c.get("shopId") as string },
-            include: {
-                variants: true
-            }
+            where: { id: productId, shop_id: shopId },
+            select: { id: true, name: true },
         });
 
         if (!product) {
             return sendError(c, "Product not found", "NOT_FOUND", 404);
         }
 
-        const name = `${color?.trim() ? color?.trim().toUpperCase() : product.name} / ${size?.trim() ? size?.trim().toUpperCase() : product.name}`
+        const nextColor = color?.trim() || null;
+        const nextSize = size?.trim() || null;
+        const openingStock = stock ?? 0;
 
-        const variant = await prisma.productVariant.create({
-            data: {
-                product_id: product.id,
-                name,
-                color,
-                size,
-            },
+        // A variant added later is the same kind of thing as one added with the
+        // product, so it is created the same way: opening stock recorded as an
+        // adjustment against the append-only ledger, never as a bare number on
+        // the variant row that the ledger does not know about.
+        const variant = await prisma.$transaction(async (tx) => {
+            const created = await tx.productVariant.create({
+                data: {
+                    product_id: product.id,
+                    // Was `"${color ?? product.name} / ${size ?? product.name}"`,
+                    // which labelled a red shirt "RED / Shirt".
+                    name: variantLabel(nextColor, nextSize),
+                    color: nextColor,
+                    size: nextSize,
+                    stock_on_hand: openingStock,
+                    last_sell_price:
+                        sell_price !== undefined && sell_price > 0
+                            ? new Decimal(sell_price)
+                            : null,
+                },
+            });
+
+            if (openingStock > 0) {
+                const adjustment = await tx.stockAdjustment.create({
+                    data: {
+                        shop_id: shopId,
+                        adjusted_by: userId,
+                        reason: "Initial stock",
+                        note: `Opening stock entered when adding a variant to ${product.name}`,
+                    },
+                });
+
+                await tx.stockAdjustmentItem.create({
+                    data: {
+                        adjustment_id: adjustment.id,
+                        variant_id: created.id,
+                        direction: StockDirection.IN,
+                        quantity: openingStock,
+                        note: "Initial stock",
+                    },
+                });
+
+                await tx.stockLedger.create({
+                    data: {
+                        variant_id: created.id,
+                        type: StockMovementType.ADJUSTMENT,
+                        direction: StockDirection.IN,
+                        quantity: openingStock,
+                        balance_after: openingStock,
+                        adjustment_id: adjustment.id,
+                    },
+                });
+            }
+
+            return created;
         });
 
         return sendSuccess(c, variant, "Variant created successfully", 201);

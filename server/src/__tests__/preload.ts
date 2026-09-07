@@ -44,6 +44,7 @@ export const mockPrisma = {
     user: makeModel(),
     shop: makeModel(),
     store: makeModel(),
+    storeBanner: makeModel(),
     onlineOrder: makeModel(),
     onlineOrderItem: makeModel(),
     productImage: makeModel(),
@@ -77,7 +78,7 @@ export function resetAllMocks() {
         'product', 'productVariant', 'category', 'customer', 'sale', 'saleItem',
         'payment', 'purchase', 'purchaseItem', 'stockLedger', 'barcode',
         'variantBarcodeAllocation', 'counter', 'stockAdjustment', 'stockAdjustmentItem', 'supplier', 'user',
-        'shop', 'store', 'onlineOrder', 'onlineOrderItem', 'productImage', 'mediaAsset',
+        'shop', 'store', 'storeBanner', 'onlineOrder', 'onlineOrderItem', 'productImage', 'mediaAsset',
     ] as const
     for (const key of models) {
         resetModel(mockPrisma[key] as any)
@@ -106,6 +107,9 @@ export function resetAllMocks() {
         if (m.update) m.update.mockImplementation(() => Promise.resolve({ id: 'test-id' }))
         if (m.updateMany) m.updateMany.mockImplementation(() => Promise.resolve({ count: 1 }))
         if (m.delete) m.delete.mockImplementation(() => Promise.resolve({ id: 'test-id' }))
+        // deleteMany was missing here while makeModel defaulted it to { count: 1 },
+        // so any handler reading `result.count` after a reset saw undefined.
+        if (m.deleteMany) m.deleteMany.mockImplementation(() => Promise.resolve({ count: 1 }))
         if (m.count) m.count.mockImplementation(() => Promise.resolve(0))
         if (m.aggregate) m.aggregate.mockImplementation(() => Promise.resolve({ _sum: { total: null, amount: null }, _count: { id: 0 } }))
         if (m.groupBy) m.groupBy.mockImplementation(() => Promise.resolve([]))

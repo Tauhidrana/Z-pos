@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { updateStoreSchema } from "@myapp/shared/schemas/store.schema";
-import { SettingsSection, StorePageHeader } from "./store-common";
+import { Field, SettingsSection, StorePageHeader } from "./store-common";
 import { ImageUploadField } from "@/components/image-upload";
 
 /**
@@ -39,6 +39,15 @@ type FormState = {
     facebook_url: string;
     instagram_url: string;
     whatsapp_number: string;
+    latitude: string;
+    longitude: string;
+    opening_hours: string;
+    delivery_info: string;
+    return_policy: string;
+    terms: string;
+    privacy_policy: string;
+    meta_title: string;
+    meta_description: string;
     delivery_charge: string;
     free_delivery_over: string;
     min_order_amount: string;
@@ -60,6 +69,15 @@ function toForm(store: MerchantStore): FormState {
         facebook_url: store.facebookUrl ?? "",
         instagram_url: store.instagramUrl ?? "",
         whatsapp_number: store.whatsappNumber ?? "",
+        latitude: store.latitude === null ? "" : String(store.latitude),
+        longitude: store.longitude === null ? "" : String(store.longitude),
+        opening_hours: store.openingHours ?? "",
+        delivery_info: store.deliveryInfo ?? "",
+        return_policy: store.returnPolicy ?? "",
+        terms: store.terms ?? "",
+        privacy_policy: store.privacyPolicy ?? "",
+        meta_title: store.metaTitle ?? "",
+        meta_description: store.metaDescription ?? "",
         delivery_charge: String(store.deliveryCharge),
         free_delivery_over:
             store.freeDeliveryOver === null ? "" : String(store.freeDeliveryOver),
@@ -150,6 +168,15 @@ function SettingsForm({ store }: { store: MerchantStore }) {
             facebook_url: form.facebook_url.trim(),
             instagram_url: form.instagram_url.trim(),
             whatsapp_number: form.whatsapp_number.trim(),
+            latitude: form.latitude.trim(),
+            longitude: form.longitude.trim(),
+            opening_hours: form.opening_hours.trim(),
+            delivery_info: form.delivery_info.trim(),
+            return_policy: form.return_policy.trim(),
+            terms: form.terms.trim(),
+            privacy_policy: form.privacy_policy.trim(),
+            meta_title: form.meta_title.trim(),
+            meta_description: form.meta_description.trim(),
             delivery_charge: form.delivery_charge,
             free_delivery_over: form.free_delivery_over,
             min_order_amount: form.min_order_amount,
@@ -431,6 +458,134 @@ function SettingsForm({ store }: { store: MerchantStore }) {
             </SettingsSection>
 
             <SettingsSection
+                title="Location and hours"
+                description="Helps customers find you, and lets a rider open your shop in a map app."
+            >
+                <div className="space-y-4">
+                    <Field
+                        label="Opening hours"
+                        error={errors.opening_hours}
+                        hint="Free text — write it the way you would tell a customer."
+                    >
+                        <Input
+                            value={form.opening_hours}
+                            onChange={(e) => set("opening_hours", e.target.value)}
+                            placeholder="Sat–Thu 10am–8pm · Friday closed"
+                        />
+                    </Field>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                        <Field
+                            label="Latitude"
+                            error={errors.latitude}
+                            hint="Optional. Leave both empty if you would rather not publish a pin."
+                        >
+                            <Input
+                                value={form.latitude}
+                                onChange={(e) => set("latitude", e.target.value)}
+                                inputMode="decimal"
+                                className="font-mono"
+                                placeholder="23.8103"
+                            />
+                        </Field>
+                        <Field label="Longitude" error={errors.longitude}>
+                            <Input
+                                value={form.longitude}
+                                onChange={(e) => set("longitude", e.target.value)}
+                                inputMode="decimal"
+                                className="font-mono"
+                                placeholder="90.4125"
+                            />
+                        </Field>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                        To find these: open your shop in Google Maps, long-press its exact
+                        spot, and copy the two numbers it shows. Latitude comes first.
+                    </p>
+                </div>
+            </SettingsSection>
+
+            <SettingsSection
+                title="Policies"
+                description="Each one becomes a page on your storefront, linked from the footer. Leave a box empty and that page is simply not shown."
+            >
+                <div className="space-y-4">
+                    <Field
+                        label="Delivery information"
+                        error={errors.delivery_info}
+                        hint="How long delivery takes, where you deliver to."
+                    >
+                        <Textarea
+                            value={form.delivery_info}
+                            onChange={(e) => set("delivery_info", e.target.value)}
+                            className="min-h-24"
+                            placeholder="Inside Dhaka: 1–2 days. Outside Dhaka: 3–5 days."
+                        />
+                    </Field>
+                    <Field
+                        label="Return policy"
+                        error={errors.return_policy}
+                        hint="Customers look for this before a first order more than almost anything else."
+                    >
+                        <Textarea
+                            value={form.return_policy}
+                            onChange={(e) => set("return_policy", e.target.value)}
+                            className="min-h-24"
+                            placeholder="Unused items can be returned within 7 days of delivery."
+                        />
+                    </Field>
+                    <Field label="Terms and conditions" error={errors.terms}>
+                        <Textarea
+                            value={form.terms}
+                            onChange={(e) => set("terms", e.target.value)}
+                            className="min-h-24"
+                        />
+                    </Field>
+                    <Field label="Privacy policy" error={errors.privacy_policy}>
+                        <Textarea
+                            value={form.privacy_policy}
+                            onChange={(e) => set("privacy_policy", e.target.value)}
+                            className="min-h-24"
+                        />
+                    </Field>
+                </div>
+            </SettingsSection>
+
+            <SettingsSection
+                title="Search engines"
+                description="What Google shows when someone finds your shop. Both are optional — your store name and description are used otherwise."
+            >
+                <div className="space-y-4">
+                    <Field
+                        label="Page title"
+                        error={errors.meta_title}
+                        hint={`${form.meta_title.length}/70 characters. Around 60 is what Google shows.`}
+                    >
+                        <Input
+                            value={form.meta_title}
+                            maxLength={70}
+                            onChange={(e) => set("meta_title", e.target.value)}
+                            placeholder={form.name || "Your shop name"}
+                        />
+                    </Field>
+                    <Field
+                        label="Search description"
+                        error={errors.meta_description}
+                        hint={`${form.meta_description.length}/180 characters.`}
+                    >
+                        <Textarea
+                            value={form.meta_description}
+                            maxLength={180}
+                            onChange={(e) => set("meta_description", e.target.value)}
+                            className="min-h-20"
+                            placeholder="Say what you sell and where you deliver."
+                        />
+                    </Field>
+                </div>
+            </SettingsSection>
+
+            <SettingsSection
                 title="Status"
                 description="Switch the storefront off while you restock or go on holiday."
             >
@@ -474,26 +629,3 @@ function SettingsForm({ store }: { store: MerchantStore }) {
     );
 }
 
-function Field({
-    label,
-    hint,
-    error,
-    children,
-}: {
-    label: string;
-    hint?: string;
-    error?: string;
-    children: React.ReactNode;
-}) {
-    return (
-        <div>
-            <label className="text-sm font-medium">{label}</label>
-            <div className="mt-1.5">{children}</div>
-            {error ? (
-                <p className="mt-1 text-xs text-destructive">{error}</p>
-            ) : hint ? (
-                <p className="mt-1 break-all text-xs text-muted-foreground">{hint}</p>
-            ) : null}
-        </div>
-    );
-}
