@@ -68,7 +68,6 @@
   ],
   "functions": {
     "api/[...route].ts": {
-      "memory": 2048,
       "maxDuration": 30
     }
   }

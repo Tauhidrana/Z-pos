@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { secureHeaders } from 'hono/secure-headers'
@@ -123,9 +124,19 @@ if (isDev) {
 }
 
 // --- Public routes (no auth required) ---
-app.get('/health', (c) =>
+// Registered on both paths, and BEFORE the `/api/*` auth middleware so neither
+// requires a token.
+//
+// `/health` alone was unreachable in production: Vercel only rewrites `/api/*`
+// to this function, so a request for `/health` was served the SPA's index.html
+// instead, and `/api/health` — the path that does reach here — fell through to
+// `requireAuth` and answered 401. A health check that cannot be called without
+// credentials, and 200s with an HTML page when it can, is not a health check.
+const health = (c: Context<AppEnv>) =>
     c.json({ status: 'ok', timestamp: new Date().toISOString() })
-)
+
+app.get('/health', health)
+app.get('/api/health', health)
 
 // --- Public storefront (no auth) -------------------------------------------
 // Registered BEFORE the `/api/*` auth middleware on purpose. Hono runs matched
