@@ -74,6 +74,13 @@ enum OnlineOrderPaymentMethod {
   COD
 }
 
+/// What an emailed customer token is for. Kept apart so a verification link
+/// can never be replayed as a password reset.
+enum CustomerTokenKind {
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Users
 // ─────────────────────────────────────────────────────────────────────────────
@@ -163,9 +170,10 @@ model Customer {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  shop         Shop          @relation(fields: [shop_id], references: [id], onDelete: Cascade)
-  sales        Sale[]
-  onlineOrders OnlineOrder[]
+  shop           Shop            @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+  sales          Sale[]
+  onlineOrders   OnlineOrder[]
+  storeCustomers StoreCustomer[]
 
   @@unique([shop_id, phone])
   @@index([shop_id])
@@ -186,6 +194,14 @@ model Category {
   description String?
   parent_id   String?
   is_active   Boolean @default(true)
+
+  /// Storefront artwork — `media:<id>` or an absolute URL. Null renders the
+  /// existing typographic tile, so a shop that never uploads one still has a
+  /// finished-looking category section rather than a grey placeholder.
+  image_url String?
+  /// Ascending order in the storefront's category rail. Ties fall back to name,
+  /// so an untouched catalog stays alphabetical.
+  position  Int     @default(0)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -231,6 +247,7 @@ model Product {
   category Category         @relation(fields: [category_id], references: [id], onDelete: Restrict)
   variants ProductVariant[]
   images   ProductImage[]
+  wishlist WishlistItem[]
 
   @@unique([shop_id, slug])
   @@index([shop_id])
@@ -258,12 +275,30 @@ model MediaAsset {
   shop_id String
 
   mime   String
-  /// Byte length of `data`, denormalized so a listing never has to read blobs.
+  /// Byte length, denormalized so a listing never has to read the image.
   size   Int
   width  Int?
   height Int?
 
-  data Bytes
+  /// Where the image actually lives, for assets stored in blob storage: an
+  /// absolute, CDN-served URL. This is the reference handed back to the app and
+  /// written into products, banners and categories, so a storefront loads its
+  /// pictures straight from the CDN without touching this API at all.
+  ///
+  /// The row still exists for such assets, and that is the point: it is what
+  /// proves which shop owns the image, so `resolveImageRefs` can keep refusing
+  /// to attach one shop's photograph to another shop's product.
+  url      String? @unique
+  /// The object's key in the blob store, kept so it can be deleted later.
+  pathname String?
+
+  /// Image bytes, for assets stored in the database.
+  ///
+  /// Nullable since blob storage became the default: new uploads set `url` and
+  /// leave this empty. Rows written before that still carry their bytes and are
+  /// still served from `/api/media/:id`, so no existing image breaks and there
+  /// is no migration to run over live product photographs.
+  data Bytes?
 
   created_at DateTime @default(now())
 
@@ -701,6 +736,34 @@ model Store {
   instagram_url   String?
   whatsapp_number String?
 
+  // ── Business location ────────────────────────────────────────────────────
+  /// Where the shop physically is. Stored alongside the free-text `address`
+  /// rather than replacing it: a courier reads the text, a map needs the pair.
+  /// Both nullable — a merchant who never opens the map picker still has a
+  /// complete store.
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+
+  // ── Published policy pages ───────────────────────────────────────────────
+  // Long-form text the storefront renders as its own pages and links from the
+  // footer. Empty means "no such page", and the footer link is hidden rather
+  // than leading somewhere blank.
+  delivery_info  String? @db.Text
+  return_policy  String? @db.Text
+  terms          String? @db.Text
+  privacy_policy String? @db.Text
+  /// Free text ("Sat-Thu 10am-8pm, Fri closed") rather than structured hours:
+  /// a shop's real opening pattern rarely survives a rigid seven-row model,
+  /// and this is displayed, never computed against.
+  opening_hours  String?
+
+  // ── SEO ──────────────────────────────────────────────────────────────────
+  // Overrides for the storefront's <title> and meta description. Null falls
+  // back to the store name and description, so an untouched store still gets
+  // store-specific tags rather than a generic zPOS one.
+  meta_title       String?
+  meta_description String?
+
   /// Flat shipping fee added at checkout, in BDT.
   delivery_charge    Decimal  @default(60) @db.Decimal(10, 2)
   /// Orders at or above this subtotal ship free. Null disables the rule.
@@ -717,11 +780,212 @@ model Store {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  shop   Shop          @relation(fields: [shop_id], references: [id], onDelete: Cascade)
-  orders OnlineOrder[]
+  shop      Shop            @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+  orders    OnlineOrder[]
+  banners   StoreBanner[]
+  customers StoreCustomer[]
 
   @@index([slug])
   @@map("stores")
+}
+
+/// One slide in the storefront's hero carousel.
+///
+/// A separate table rather than more columns on `Store` because a banner is a
+/// list, and lists in columns (banner_1_url, banner_2_url …) cannot be
+/// reordered, counted or extended. `Store.banner_url` is kept as-is so every
+/// existing storefront keeps its cover image; it is treated as the implicit
+/// first slide when a store has no rows here yet.
+///
+/// The five-banner cap is enforced in the API, not here: it is a product
+/// decision about what a carousel can hold before shoppers stop swiping, and
+/// it belongs where the error message can explain itself.
+model StoreBanner {
+  id       String @id @default(uuid())
+  store_id String
+
+  /// `media:<id>` reference or an absolute URL, same as every other image.
+  image_url String
+
+  /// All optional — a banner may be pure artwork with the copy baked into the
+  /// image, which is how most merchants will actually use it.
+  title       String?
+  subtitle    String?
+  button_text String?
+  /// Where the button goes. A storefront-relative path ("/category/shoes") or
+  /// an absolute URL; validated on write so a banner cannot inject javascript:.
+  button_link String?
+
+  /// Ascending display order. Gaps are fine — the list is sorted, not indexed.
+  position  Int     @default(0)
+  /// Lets a merchant retire a seasonal banner without deleting the artwork.
+  is_active Boolean @default(true)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  store Store @relation(fields: [store_id], references: [id], onDelete: Cascade)
+
+  @@index([store_id, position])
+  @@index([store_id, is_active, position])
+  @@map("store_banners")
+}
+
+/// A shopper's account on one merchant's storefront.
+///
+/// Deliberately NOT the `User` model: that is a zPOS operator authenticated by
+/// Clerk with access to a shop's books. A storefront customer is a member of
+/// the public with a password, and the two must never share an identity space.
+///
+/// Deliberately NOT `Customer` either. `Customer` is the shop's record of a
+/// person it has sold to — created by the POS for walk-ins, with no password
+/// and no login. Giving it credentials would mean every walk-in silently owned
+/// a web account. Instead this links TO a `Customer` row, so a shopper who
+/// later buys in person is one person in the merchant's books while only the
+/// web identity carries a password.
+///
+/// Scoped to a store, not to a shop: the account is with the shop the customer
+/// chose to buy from, and `@@unique([store_id, email])` means the same address
+/// can register independently at two different merchants without either being
+/// able to see the other's account.
+model StoreCustomer {
+  id       String @id @default(uuid())
+  store_id String
+  /// Denormalized from `store` so tenancy filters and the merchant's customer
+  /// list never need a join to answer "is this mine?".
+  shop_id  String
+
+  email String
+  name  String
+  phone String?
+
+  /// scrypt, as `<salt>:<derived key>` in hex. Never leaves the server, and is
+  /// excluded from every select outside the auth path.
+  password_hash String
+
+  /// Set once the emailed link is followed. An unverified account can still
+  /// browse and order — blocking checkout on email delivery would cost real
+  /// sales — but cannot reset its password to take over the address.
+  email_verified_at DateTime?
+
+  /// Bumped whenever the password changes. Session tokens carry the value they
+  /// were issued under, so a reset invalidates every existing session without
+  /// a server-side session table to sweep.
+  password_version Int @default(0)
+
+  /// The merchant's business record for this person, linked on first order.
+  /// Nullable: an account that has never ordered is not yet a customer of the
+  /// shop in any accounting sense.
+  customer_id String?
+
+  is_active     Boolean   @default(true)
+  last_login_at DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  store     Store             @relation(fields: [store_id], references: [id], onDelete: Cascade)
+  customer  Customer?         @relation(fields: [customer_id], references: [id], onDelete: SetNull)
+  addresses CustomerAddress[]
+  wishlist  WishlistItem[]
+  tokens    CustomerToken[]
+  orders    OnlineOrder[]
+
+  @@unique([store_id, email])
+  @@index([store_id])
+  @@index([shop_id])
+  @@index([customer_id])
+  @@map("store_customers")
+}
+
+/// Single-use, expiring tokens for email verification and password reset.
+///
+/// A table rather than a signed token in a URL because these must be
+/// revocable and single-use: a reset link that still works after it has been
+/// used is a reset link sitting in an inbox forever. Only the hash is stored,
+/// so a database read does not yield working links.
+model CustomerToken {
+  id                String            @id @default(uuid())
+  store_customer_id String
+  kind              CustomerTokenKind
+  /// SHA-256 of the token that was emailed. The plaintext exists only in the
+  /// message.
+  token_hash        String            @unique
+  expires_at        DateTime
+  used_at           DateTime?
+
+  created_at DateTime @default(now())
+
+  customer StoreCustomer @relation(fields: [store_customer_id], references: [id], onDelete: Cascade)
+
+  @@index([store_customer_id, kind])
+  @@index([expires_at])
+  @@map("customer_tokens")
+}
+
+/// A delivery address in a customer's address book.
+///
+/// Carries both representations on purpose: the structured Bangladesh triple
+/// (division/district/upazila) is what a courier and the merchant's dashboard
+/// read, and the coordinate pair is what a map pin sets. Either can be absent —
+/// a customer who types their address never opens a map, and a pin dropped on
+/// a map still needs the written address underneath it.
+model CustomerAddress {
+  id                String @id @default(uuid())
+  store_customer_id String
+
+  /// "Home", "Office", or whatever the customer typed.
+  label          String @default("Home")
+  recipient_name String
+  phone          String
+
+  division     String
+  district     String
+  upazila      String
+  area         String?
+  address_line String
+  landmark     String?
+  postal_code  String?
+
+  /// Set when the customer places the pin. Null is normal.
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+
+  /// "Third floor, ring the bell twice" — for the rider, not the address.
+  delivery_note String?
+
+  /// Exactly one per customer is kept true by the API, which clears the others
+  /// in the same transaction as it sets this one.
+  is_default Boolean @default(false)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  customer StoreCustomer @relation(fields: [store_customer_id], references: [id], onDelete: Cascade)
+
+  @@index([store_customer_id])
+  @@index([store_customer_id, is_default])
+  @@map("customer_addresses")
+}
+
+/// A product a customer saved for later.
+///
+/// Keyed on the product rather than a variant: a shopper saves "that jacket",
+/// and picks the size when they actually buy. The unique pair makes saving
+/// twice a no-op instead of a duplicate row.
+model WishlistItem {
+  id                String @id @default(uuid())
+  store_customer_id String
+  product_id        String
+
+  created_at DateTime @default(now())
+
+  customer StoreCustomer @relation(fields: [store_customer_id], references: [id], onDelete: Cascade)
+  product  Product       @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([store_customer_id, product_id])
+  @@index([store_customer_id, created_at])
+  @@map("wishlist_items")
 }
 
 /// An order placed on a storefront. Cash on delivery only for now.
@@ -749,12 +1013,27 @@ model OnlineOrder {
   customer_phone String
   customer_email String?
 
+  /// The storefront account that placed it, when the shopper was signed in.
+  /// Null for guest checkout, which stays supported — requiring an account to
+  /// buy is the single most reliable way to lose an order.
+  store_customer_id String?
+
   // ── Bangladesh delivery address ──────────────────────────────────────────
+  // A snapshot, not a reference to `customer_addresses`: the address book can
+  // be edited or deleted afterwards, and where a delivered parcel actually
+  // went must not change when the customer moves house.
   division     String
   district     String
   upazila      String
   area         String?
   address_line String
+  landmark     String?
+  postal_code  String?
+
+  /// Map pin, when the customer set one. The written address above stays
+  /// authoritative — this is an aid for the rider, not a replacement.
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
 
   note String?
 
@@ -775,10 +1054,11 @@ model OnlineOrder {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  shop     Shop      @relation(fields: [shop_id], references: [id], onDelete: Cascade)
-  store    Store     @relation(fields: [store_id], references: [id], onDelete: Cascade)
-  customer Customer? @relation(fields: [customer_id], references: [id], onDelete: SetNull)
-  sale     Sale?     @relation(fields: [sale_id], references: [id], onDelete: SetNull)
+  shop          Shop           @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+  store         Store          @relation(fields: [store_id], references: [id], onDelete: Cascade)
+  customer      Customer?      @relation(fields: [customer_id], references: [id], onDelete: SetNull)
+  storeCustomer StoreCustomer? @relation(fields: [store_customer_id], references: [id], onDelete: SetNull)
+  sale          Sale?          @relation(fields: [sale_id], references: [id], onDelete: SetNull)
 
   items        OnlineOrderItem[]
   stockLedgers StockLedger[]
@@ -789,6 +1069,8 @@ model OnlineOrder {
   @@index([store_id])
   @@index([customer_id])
   @@index([customer_phone])
+  /// Drives "my orders", which is always newest-first for one account.
+  @@index([store_customer_id, placed_at])
   @@map("online_orders")
 }
 

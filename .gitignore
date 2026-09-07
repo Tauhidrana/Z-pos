@@ -62,3 +62,4 @@ desktop.ini
 
 # Built by the Vercel build command from server/src (see vercel.json).
 api/_app.mjs
+.env*

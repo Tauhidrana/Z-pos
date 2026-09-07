@@ -20,6 +20,7 @@ import prisma from "@/lib/prisma";
 import { sendError, sendSuccess } from "@/utils/response";
 import type { UploadImage } from "@myapp/shared/schemas/media.schema";
 import { MAX_IMAGE_BYTES, ALLOWED_IMAGE_MIMES } from "@myapp/shared/schemas/media.schema";
+import { isBlobUrl, storeImage } from "@/lib/storage";
 
 /** `data:image/webp;base64,AAAA…` → mime + raw bytes. */
 function decodeDataUrl(
@@ -99,6 +100,10 @@ export const MediaController = {
             return sendError(c, decoded.error, "INVALID_IMAGE", 422);
         }
 
+        // Blob storage when it is configured, the database otherwise. Either
+        // way a row is written: it is what records which shop owns the image.
+        const stored = await storeImage(shopId, decoded.mime, decoded.bytes);
+
         const asset = await prisma.mediaAsset.create({
             data: {
                 shop_id: shopId,
@@ -106,20 +111,31 @@ export const MediaController = {
                 size: decoded.bytes.length,
                 width: body.width ?? null,
                 height: body.height ?? null,
+                url: stored.url,
+                pathname: stored.pathname,
                 // Prisma's Bytes field wants a plain Uint8Array; a Node Buffer
                 // is one structurally but carries a wider ArrayBufferLike.
-                data: new Uint8Array(decoded.bytes),
+                data: stored.data,
             },
-            select: { id: true, mime: true, size: true, width: true, height: true },
+            select: { id: true, mime: true, size: true, width: true, height: true, url: true },
         });
 
         return sendSuccess(
             c,
             {
-                // The token the rest of the app stores and passes around. Not a
-                // URL: a URL would bake this deployment's host into the database
-                // and break the moment the domain changes.
-                ref: `media:${asset.id}`,
+                // What the rest of the app stores and passes around.
+                //
+                // For a blob-backed asset this is the CDN URL itself, so a
+                // storefront loads the picture straight from the edge instead of
+                // routing every product photograph through this function. It is
+                // still ownership-checked on write — see `resolveImageRefs`,
+                // which looks the URL up in this table.
+                //
+                // For a database-backed asset it stays `media:<id>`, which
+                // carries no hostname: baking one in would break every image the
+                // day the domain changes, and the same row has to render from
+                // localhost, the dashboard and every storefront subdomain.
+                ref: asset.url ?? `media:${asset.id}`,
                 id: asset.id,
                 mime: asset.mime,
                 size: asset.size,
@@ -144,10 +160,19 @@ export const MediaController = {
 
         const asset = await prisma.mediaAsset.findUnique({
             where: { id },
-            select: { mime: true, data: true, size: true },
+            select: { mime: true, data: true, size: true, url: true },
         });
 
         if (!asset) return sendError(c, "Not found", "NOT_FOUND", 404);
+
+        // Blob-backed asset reached through its id rather than its URL. Nothing
+        // written today produces such a link, but one may still be sitting in a
+        // cache or an old page, so send it on to where the bytes actually are.
+        if (asset.url) {
+            return c.redirect(asset.url, 301);
+        }
+
+        if (!asset.data) return sendError(c, "Not found", "NOT_FOUND", 404);
 
         const bytes = new Uint8Array(asset.data);
 
@@ -189,13 +214,23 @@ export async function resolveImageRefs(
     shopId: string,
 ): Promise<{ ok: true; values: string[] } | { ok: false; error: string }> {
     const ids: string[] = [];
+    const blobUrls: string[] = [];
 
     for (const ref of refs) {
         if (ref.startsWith("media:")) {
             ids.push(ref.slice("media:".length));
+        } else if (isBlobUrl(ref)) {
+            // An upload of ours, referenced by its CDN URL. Ownership is
+            // checked below exactly as it is for `media:<id>` — a blob URL is
+            // guessable in principle and belongs to a specific shop.
+            blobUrls.push(ref);
         } else if (!/^https?:\/\/\S+$/i.test(ref)) {
             return { ok: false, error: "One of the images is not a valid upload." };
         }
+        // Any other absolute URL passes through unchecked. Those predate
+        // uploads (seeded catalogues point at external image hosts) and nothing
+        // in the UI produces one; they are somebody else's public URL, not one
+        // of our assets, so there is no ownership to assert.
     }
 
     if (ids.length > 0) {
@@ -204,6 +239,16 @@ export async function resolveImageRefs(
             select: { id: true },
         });
         if (owned.length !== new Set(ids).size) {
+            return { ok: false, error: "One of the images could not be found." };
+        }
+    }
+
+    if (blobUrls.length > 0) {
+        const owned = await prisma.mediaAsset.findMany({
+            where: { url: { in: blobUrls }, shop_id: shopId },
+            select: { url: true },
+        });
+        if (owned.length !== new Set(blobUrls).size) {
             return { ok: false, error: "One of the images could not be found." };
         }
     }
