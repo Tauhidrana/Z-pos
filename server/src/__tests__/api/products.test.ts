@@ -79,23 +79,82 @@ describe('GET /api/products/get/:id', () => {
 })
 
 describe('GET /api/products/get/by-barcode/:barcode', () => {
-    it('returns 404 when barcode record does not exist', async () => {
-        // barcode.findUnique returns null — barcode code not in DB
-        mockPrisma.barcode.findUnique.mockResolvedValueOnce(null)
+    const ALLOCATION = {
+        barcode: { code: '036000291452' },
+        purchaseItem: { sell_price: '310' },
+        variant: {
+            id: 'var-uuid-1',
+            name: 'Red',
+            stock_on_hand: 4,
+            last_sell_price: '250',
+            product: { name: 'Test Product' },
+        },
+    }
 
-        const res = await get(app, '/api/products/get/by-barcode/123456789')
-        expect(res.status).toBe(404)
-
-        const body = await json<ApiResponse<null>>(res)
-        expect(body.success).toBe(false)
-    })
-
-    it('returns 404 when barcode exists but has no variant allocation', async () => {
-        mockPrisma.barcode.findUnique.mockResolvedValueOnce({ id: 'bc-1', code: '123', status: 'ALLOCATED' })
+    it('returns 404, naming the code, when nothing carries it', async () => {
+        // The cashier is holding the item; "scan failed" tells them nothing.
         mockPrisma.variantBarcodeAllocation.findFirst.mockResolvedValueOnce(null)
 
         const res = await get(app, '/api/products/get/by-barcode/123456789')
         expect(res.status).toBe(404)
+
+        const body = await json<ApiResponse<null> & { error: { code: string } }>(res)
+        expect(body.success).toBe(false)
+        expect(body.error.code).toBe('BARCODE_NOT_FOUND')
+        expect(body.message).toContain('123456789')
+    })
+
+    it('400s on a code that is only padding', async () => {
+        const res = await get(app, '/api/products/get/by-barcode/%20%20')
+        expect(res.status).toBe(400)
+    })
+
+    it('matches every form the same physical label can arrive as', async () => {
+        // A UPC-A label is 12 digits to one scanner and 13 to another. Matching
+        // only the literal decode would miss stock the shop genuinely carries.
+        mockPrisma.variantBarcodeAllocation.findFirst.mockResolvedValueOnce(ALLOCATION)
+
+        const res = await get(app, '/api/products/get/by-barcode/0036000291452')
+        expect(res.status).toBe(200)
+
+        const where = mockPrisma.variantBarcodeAllocation.findFirst.mock.calls[0]![0] as any
+        expect(where.where.barcode.code.in).toContain('0036000291452')
+        expect(where.where.barcode.code.in).toContain('036000291452')
+
+        // The stored code comes back, not the scanned form, so the cart line
+        // and the later checkout agree on one string.
+        const body = await json<ApiResponse<{ barcode: string; price: number }>>(res)
+        expect(body.data.barcode).toBe('036000291452')
+        expect(body.data.price).toBe(310)
+    })
+
+    it('prices a label with no batch behind it from the shelf price', async () => {
+        // Opening stock, or a manufacturer's code linked to something already
+        // on the shelf: real labels that never passed through a purchase.
+        mockPrisma.variantBarcodeAllocation.findFirst.mockResolvedValueOnce({
+            ...ALLOCATION,
+            purchaseItem: null,
+        })
+
+        const res = await get(app, '/api/products/get/by-barcode/036000291452')
+        expect(res.status).toBe(200)
+
+        const body = await json<ApiResponse<{ price: number }>>(res)
+        expect(body.data.price).toBe(250)
+    })
+
+    it('refuses to sell a scanned item that has no price at all', async () => {
+        mockPrisma.variantBarcodeAllocation.findFirst.mockResolvedValueOnce({
+            ...ALLOCATION,
+            purchaseItem: null,
+            variant: { ...ALLOCATION.variant, last_sell_price: null },
+        })
+
+        const res = await get(app, '/api/products/get/by-barcode/036000291452')
+        expect(res.status).toBe(422)
+
+        const body = await json<ApiResponse<null> & { error: { code: string } }>(res)
+        expect(body.error.code).toBe('NO_PRICE')
     })
 })
 

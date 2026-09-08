@@ -167,9 +167,15 @@ export type CreateProductVariant = z.infer<typeof productVariantSchema>
  * Body for issuing (or re-resolving) a variant's printable barcode.
  * Kept separate from `idBodySchema` so the field name matches what the label
  * generator actually sends, rather than an ambiguous bare `id`.
+ *
+ * `code` links a barcode the merchant did not print — the manufacturer's own,
+ * scanned off the carton — instead of minting a new one. It is deliberately not
+ * constrained to EAN-13: a supplier's Code-128 is a real label that has to ring
+ * up at the till like any other. The server normalizes and range-checks it.
  */
 export const issueBarcodeSchema = z.object({
     variantId: zodUUID,
+    code: z.string().trim().min(4).max(48).optional(),
 });
 
 export type IssueBarcode = z.infer<typeof issueBarcodeSchema>;

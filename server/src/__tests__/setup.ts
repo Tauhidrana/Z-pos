@@ -12,6 +12,7 @@ import adminRouter from '@/routes/admin.route'
 import storeRouter from '@/routes/store.route'
 import storefrontRouter from '@/routes/storefront.route'
 import mediaRouter, { mediaPublicRouter } from '@/routes/media.route'
+import labelRouter from '@/routes/label.route'
 import type { AppEnv } from '@/types'
 
 // Creates a test version of the app that bypasses Clerk auth
@@ -50,6 +51,7 @@ export function createTestApp(role: 'OWNER' | 'STAFF' = 'OWNER') {
     app.route('/api/admin', adminRouter)
     app.route('/api/store', storeRouter)
     app.route('/api/media', mediaRouter)
+    app.route('/api/labels', labelRouter)
 
     app.onError((err, c) => {
         if (err instanceof AppError) return sendError(c, err.message, err.code, err.status, err.details)

@@ -19,12 +19,13 @@ import {
   ShoppingCart,
   Loader2,
   AlertTriangle,
+  SearchX,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@clerk/react";
 import { cn } from "@/lib/utils";
 import { usePostData } from "@/lib/api-request";
-import { getProductByBarcode } from "@/lib/barcode-lookup";
+import { lookupBarcode } from "@/lib/barcode-lookup";
 import { playSoundWithCacheInstance } from "@/lib/sound";
 import { CameraScanner } from "@/components/sales/CameraScanner";
 import { CheckoutModal } from "@/components/pos/checkout-modal";
@@ -35,6 +36,19 @@ const BDT = (n: number) =>
   n.toLocaleString("en-BD", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 type SaleLine = { product: CartEntryProduct; qty: number };
+
+/** A code that read cleanly but belongs to nothing this shop sells. */
+type UnknownScan = { code: string; format: string; message: string };
+
+/**
+ * The symbology name, as a person would read it.
+ *
+ * Worth showing on an unmatched scan: "EAN 13" tells the cashier the camera
+ * read a real retail label and the shop simply does not carry it, which is a
+ * different problem from a code they typed wrong.
+ */
+const formatLabel = (format: string) =>
+  format === "TYPED" ? "Typed" : format.replace(/_/g, " ");
 
 type NewSaleScanModalProps = {
   open: boolean;
@@ -55,6 +69,7 @@ export function NewSaleScanModal({ open, onClose, onCreated }: NewSaleScanModalP
   const { getToken } = useAuth();
   const [lines, setLines] = useState<SaleLine[]>([]);
   const [pending, setPending] = useState<CartEntryProduct | null>(null);
+  const [unknown, setUnknown] = useState<UnknownScan | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
   const [manualCode, setManualCode] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -76,21 +91,40 @@ export function NewSaleScanModal({ open, onClose, onCreated }: NewSaleScanModalP
   // dialog that reopened holding the previous customer's items would be a real
   // way to charge the wrong person, so that unmount is load-bearing.
 
+  /**
+   * Resolve one scan.
+   *
+   * A code the shop does not stock is not an error to be flashed and forgotten:
+   * the cashier is holding the item and needs to read the number off the screen
+   * to decide what to do with it. So it lands in the same slot an approved scan
+   * would, saying plainly that nothing matches, and the sale does not move.
+   */
   const lookup = useCallback(
-    async (code: string) => {
+    async (code: string, format = "") => {
       const trimmed = code.trim();
       if (!trimmed || lookingUp) return;
 
       setLookingUp(true);
       try {
-        const product = await getProductByBarcode(trimmed, getToken);
-        if (!product) {
-          playSoundWithCacheInstance("error_beep");
-          toast.error(`No product found for barcode ${trimmed}`);
+        const result = await lookupBarcode(trimmed, getToken);
+
+        if (result.status === "found") {
+          playSoundWithCacheInstance("beep");
+          setUnknown(null);
+          setPending(result.product);
           return;
         }
-        playSoundWithCacheInstance("beep");
-        setPending(product);
+
+        playSoundWithCacheInstance("error_beep");
+
+        if (result.status === "unknown") {
+          setUnknown({ code: result.code, format, message: result.message });
+          return;
+        }
+
+        // A request that failed says nothing about the label — the same scan is
+        // worth repeating, so it stays a transient message rather than a panel.
+        toast.error(result.message);
       } finally {
         setLookingUp(false);
       }
@@ -114,6 +148,17 @@ export function NewSaleScanModal({ open, onClose, onCreated }: NewSaleScanModalP
     manualRef.current?.focus();
   }, [pending]);
 
+  /**
+   * Clear an unmatched scan and hand the scanner back.
+   *
+   * Load-bearing: an unmatched code pauses the camera so the cashier can read
+   * the number off the screen, and this is the only thing that resumes it.
+   */
+  const dismissUnknown = useCallback(() => {
+    setUnknown(null);
+    manualRef.current?.focus();
+  }, []);
+
   const changeQty = (variantId: string, delta: number) =>
     setLines((prev) =>
       prev.flatMap((l) => {
@@ -131,7 +176,7 @@ export function NewSaleScanModal({ open, onClose, onCreated }: NewSaleScanModalP
     const code = manualCode.trim();
     if (!code) return;
     setManualCode("");
-    void lookup(code);
+    void lookup(code, "TYPED");
   };
 
   const handleConfirmPayment = (payload: CheckoutPayload) => {
@@ -184,7 +229,15 @@ export function NewSaleScanModal({ open, onClose, onCreated }: NewSaleScanModalP
           <div className="grid max-h-[60dvh] gap-5 sm:gap-6 overflow-y-auto p-4 sm:p-6 md:grid-cols-2">
             {/* ── Scanner column ─────────────────────────────────────────── */}
             <div className="flex flex-col gap-4">
-              <CameraScanner onDecode={(code) => void lookup(code)} paused={pending !== null} />
+              <CameraScanner
+                onDecode={(code, format) => void lookup(code, format)}
+                paused={pending !== null || unknown !== null}
+                pausedMessage={
+                  pending
+                    ? "Paused — approve or discard the scan"
+                    : "Paused — dismiss the unmatched barcode"
+                }
+              />
 
               <form onSubmit={handleManualSubmit} className="flex gap-2">
                 <Input
@@ -192,8 +245,9 @@ export function NewSaleScanModal({ open, onClose, onCreated }: NewSaleScanModalP
                   value={manualCode}
                   onChange={(e) => setManualCode(e.target.value)}
                   placeholder="Or type / scan a barcode…"
-                  inputMode="numeric"
                   autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
                   aria-label="Barcode"
                 />
                 <Button type="submit" variant="secondary" disabled={!manualCode.trim() || lookingUp}>
@@ -232,6 +286,29 @@ export function NewSaleScanModal({ open, onClose, onCreated }: NewSaleScanModalP
                     <Button variant="outline" onClick={() => setPending(null)} className="flex-1">
                       <X className="mr-2 h-4 w-4" />
                       Discard
+                    </Button>
+                  </div>
+                </div>
+              ) : unknown ? (
+                <div className="rounded-lg border-2 border-destructive bg-destructive/5 p-4">
+                  <p className="mb-1 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-destructive">
+                    <SearchX className="h-3.5 w-3.5" />
+                    Not in your catalog
+                  </p>
+                  <p className="font-mono text-sm font-semibold leading-tight break-all">
+                    {unknown.code}
+                  </p>
+                  {unknown.format && (
+                    <Badge variant="outline" className="mt-2 font-mono text-[10px]">
+                      {formatLabel(unknown.format)}
+                    </Badge>
+                  )}
+                  <p className="mt-2 text-xs text-muted-foreground">{unknown.message}</p>
+
+                  <div className="mt-4">
+                    <Button variant="outline" onClick={dismissUnknown} className="w-full">
+                      <X className="mr-2 h-4 w-4" />
+                      Dismiss and keep scanning
                     </Button>
                   </div>
                 </div>

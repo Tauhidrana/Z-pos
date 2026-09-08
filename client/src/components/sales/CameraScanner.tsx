@@ -2,14 +2,52 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, CameraOff, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+// Type-only, and therefore erased at build time: the library itself still
+// arrives through the dynamic import below, so naming the hint type here does
+// not drag ZXing into the main bundle.
+import type { DecodeHintType as ZXingHint } from "@zxing/library";
 
 type CameraScannerProps = {
   /** Fired once per accepted decode, already de-duplicated. */
-  onDecode: (code: string) => void;
+  onDecode: (code: string, format: string) => void;
   /** Pause decoding without tearing the camera down (e.g. while a scan awaits approval). */
   paused?: boolean;
+  /** What the paused overlay tells the operator to do to resume. */
+  pausedMessage?: string;
   className?: string;
 };
+
+/**
+ * Every symbology a shop actually meets at the counter.
+ *
+ * Naming them is not a restriction, it is what makes the reader fast enough to
+ * be one. Left unhinted, ZXing runs three 2D decoders (Data Matrix, Aztec,
+ * PDF417) ahead of the 1D ones on every frame — formats no retail label uses —
+ * and the 1D pass that matters gets whatever budget is left. Listing the retail
+ * formats cuts the readers down to QR plus the 1D set.
+ */
+const RETAIL_FORMATS = [
+  "EAN_13",
+  "EAN_8",
+  "UPC_A",
+  "UPC_E",
+  "CODE_128",
+  "CODE_39",
+  "CODE_93",
+  "ITF",
+  "CODABAR",
+  "QR_CODE",
+] as const;
+
+/**
+ * Milliseconds between decode attempts.
+ *
+ * ZXing defaults to 500 ms — two frames a second. That is a large part of why
+ * anything other than the crisp labels we print ourselves feels like it "does
+ * not scan": a hand-held phone holds a curved carton in focus for a moment, and
+ * two chances inside that moment is not many. At 100 ms it gets ten.
+ */
+const SCAN_INTERVAL_MS = 100;
 
 /**
  * Live camera barcode scanner.
@@ -22,7 +60,12 @@ type CameraScannerProps = {
  * each one would add a line per frame, so decodes are gated on a short cooldown
  * and on the code actually changing.
  */
-export function CameraScanner({ onDecode, paused = false, className }: CameraScannerProps) {
+export function CameraScanner({
+  onDecode,
+  paused = false,
+  pausedMessage = "Paused — approve or discard the scan",
+  className,
+}: CameraScannerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<{ stop: () => void } | null>(null);
   const lastRef = useRef<{ code: string; at: number }>({ code: "", at: 0 });
@@ -52,8 +95,22 @@ export function CameraScanner({ onDecode, paused = false, className }: CameraSca
     setError(null);
     setStarting(true);
     try {
-      const { BrowserMultiFormatReader } = await import("@zxing/browser");
-      const reader = new BrowserMultiFormatReader();
+      const [{ BrowserMultiFormatReader }, { BarcodeFormat, DecodeHintType }] =
+        await Promise.all([import("@zxing/browser"), import("@zxing/library")]);
+
+      const hints = new Map<ZXingHint, unknown>();
+      hints.set(
+        DecodeHintType.POSSIBLE_FORMATS,
+        RETAIL_FORMATS.map((name) => BarcodeFormat[name]),
+      );
+      // Also reads the row backwards, which is how a carton held upside down
+      // still resolves instead of quietly failing.
+      hints.set(DecodeHintType.TRY_HARDER, true);
+
+      const reader = new BrowserMultiFormatReader(hints, {
+        delayBetweenScanAttempts: SCAN_INTERVAL_MS,
+        delayBetweenScanSuccess: 400,
+      });
 
       const controls = await reader.decodeFromVideoDevice(
         undefined, // let the browser pick; it prefers the rear camera on phones
@@ -69,7 +126,7 @@ export function CameraScanner({ onDecode, paused = false, className }: CameraSca
           if (code === lastRef.current.code && now - lastRef.current.at < 1500) return;
           lastRef.current = { code, at: now };
 
-          onDecodeRef.current(code);
+          onDecodeRef.current(code, BarcodeFormat[result.getBarcodeFormat()] ?? "");
         },
       );
 
@@ -107,7 +164,9 @@ export function CameraScanner({ onDecode, paused = false, className }: CameraSca
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-4 text-center">
             <Camera className="h-8 w-8 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">
-              Point the camera at a barcode to add it to the sale.
+              Point the camera at a barcode to add it to the sale. Any retail
+              barcode reads &mdash; the shop&rsquo;s own labels and the
+              manufacturer&rsquo;s alike.
             </p>
           </div>
         )}
@@ -121,7 +180,7 @@ export function CameraScanner({ onDecode, paused = false, className }: CameraSca
             {paused && (
               <div className="absolute inset-0 flex items-center justify-center bg-background/70">
                 <span className="rounded-md bg-background px-3 py-1.5 text-xs font-medium shadow">
-                  Paused — approve or discard the scan
+                  {pausedMessage}
                 </span>
               </div>
             )}

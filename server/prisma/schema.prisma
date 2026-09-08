@@ -415,16 +415,26 @@ model Barcode {
 model VariantBarcodeAllocation {
   id String @id @default(uuid())
 
-  barcode_id       String @unique // one barcode → one allocation at a time
-  variant_id       String
-  purchase_item_id String // which purchase batch this unit came from
+  barcode_id String @unique // one barcode → one allocation at a time
+  variant_id String
+
+  /// Which purchase batch this unit came from, and therefore the exact price
+  /// the till charges for it.
+  ///
+  /// Null when the label was issued from the barcode generator for stock that
+  /// never passed through a purchase — opening stock entered with the product,
+  /// a variant added by hand, or a manufacturer's own barcode linked to a
+  /// product the merchant already had on the shelf. Those units are priced from
+  /// `product_variants.last_sell_price` instead: the shelf price the merchant
+  /// typed, which is the same figure the storefront quotes.
+  purchase_item_id String?
 
   allocated_by String
   allocated_at DateTime @default(now())
 
   barcode         Barcode        @relation(fields: [barcode_id], references: [id], onDelete: Restrict)
   variant         ProductVariant @relation(fields: [variant_id], references: [id], onDelete: Restrict)
-  purchaseItem    PurchaseItem   @relation(fields: [purchase_item_id], references: [id], onDelete: Restrict)
+  purchaseItem    PurchaseItem?  @relation(fields: [purchase_item_id], references: [id], onDelete: Restrict)
   allocatedByUser User           @relation("BarcodeAllocator", fields: [allocated_by], references: [id], onDelete: Restrict)
 
   @@index([barcode_id])

@@ -378,10 +378,12 @@ describe('GET /api/sales/get/all', () => {
 
 // ── Selling stock that never came through a purchase ──────────────────────────
 //
-// A barcode is only ever issued against a purchase batch, so opening stock —
-// entered when the product was created, or on a variant added by hand — has
-// none. Requiring one to check out meant such stock could be counted, priced
-// and displayed but never rung up.
+// Opening stock — entered when the product was created, or on a variant added
+// by hand — has no purchase batch behind it, and neither does a manufacturer's
+// barcode linked to something already on the shelf. Pricing every line from a
+// batch meant such stock could be counted, priced and displayed but never rung
+// up. It is priced from `last_sell_price` instead, whether or not it was
+// scanned.
 
 describe('POST /api/sales/create — lines with no barcode', () => {
     const UNSCANNED_VARIANT = '550e8400-e29b-41d4-a716-446655440031'
@@ -552,9 +554,38 @@ describe('POST /api/sales/create — lines with no barcode', () => {
         expect(prices).toEqual([20, 150])
     })
 
-    it('still refuses a barcode that resolves to no purchase allocation', async () => {
-        // The scanned path is unchanged: a label with no batch behind it is a
-        // data problem, not a shelf-price fallback.
+    it('prices a scanned label that has no batch behind it from the shelf', async () => {
+        // The label exists and points at this variant; it simply was not issued
+        // against a purchase. That is now ordinary — it is how a manufacturer's
+        // barcode and opening stock are labelled — so it rings up at the shelf
+        // price rather than being refused at the till.
+        mockPrisma.barcode.findMany.mockResolvedValueOnce([{ id: 'bc-1', code: BARCODE }])
+        mockPrisma.variantBarcodeAllocation.findMany.mockResolvedValueOnce([
+            { barcode_id: 'bc-1', variant_id: VARIANT_ID, purchaseItem: null },
+        ])
+        mockPrisma.productVariant.findMany.mockResolvedValueOnce([
+            { id: VARIANT_ID, last_sell_price: new Decimal(150) },
+        ])
+        mockPrisma.customer.upsert.mockResolvedValueOnce({ id: 'cust-1' })
+        mockPrisma.$queryRaw.mockResolvedValueOnce([
+            { id: VARIANT_ID, name: 'Red', product_name: 'T-Shirt', stock_on_hand: 10 },
+        ])
+        mockPrisma.sale.create.mockResolvedValueOnce({
+            id: 'sale-1',
+            invoice_number: 'INV-2026-000045',
+        })
+
+        const res = await post(app, '/api/sales/create', VALID_CHECKOUT_BODY)
+        expect(res.status).toBe(201)
+
+        const saleData = mockPrisma.sale.create.mock.calls[0]?.[0].data
+        const prices = saleData.items.create.map((i: any) => Number(i.unit_price))
+        expect(prices).toEqual([150])
+    })
+
+    it('still refuses a barcode that resolves to no allocation at all', async () => {
+        // No allocation row means the label points at nothing — a data problem,
+        // and distinct from an allocation that merely has no batch.
         mockPrisma.barcode.findMany.mockResolvedValueOnce([{ id: 'bc-1', code: BARCODE }])
         mockPrisma.variantBarcodeAllocation.findMany.mockResolvedValueOnce([])
 

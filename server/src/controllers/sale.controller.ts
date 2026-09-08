@@ -312,22 +312,25 @@ export const SaleController = {
 
         const allocationByBarcodeId = new Map(allocations.map((a) => [a.barcode_id, a]));
 
-        // ── 2b. Shelf prices for the unscanned lines ───────────────────────────
+        // ── 2b. Shelf prices ───────────────────────────────────────────────────
+        //
+        // Needed for two kinds of line: one added without scanning, and one
+        // whose label has no purchase batch behind it (opening stock, or a
+        // manufacturer's barcode linked to something already on the shelf).
+        // Fetched for every variant in the cart because which lines need it is
+        // only known after the allocations come back, and it is one query
+        // either way.
         //
         // Scoped to this shop, so a caller quoting another merchant's variant id
         // gets no price and the sale is refused rather than priced from a row
         // they cannot see.
-        const unscannedVariantIds = [
-            ...new Set(
-                body.cartItems.filter((i) => !i.barcode).map((i) => i.variantId),
-            ),
-        ];
+        const cartVariantIds = [...new Set(body.cartItems.map((i) => i.variantId))];
 
         const shelfPriceByVariantId = new Map<string, Decimal>();
-        if (unscannedVariantIds.length > 0) {
+        if (cartVariantIds.length > 0) {
             const pricedVariants = await prisma.productVariant.findMany({
                 where: {
-                    id: { in: unscannedVariantIds },
+                    id: { in: cartVariantIds },
                     product: { shop_id: shopId },
                 },
                 select: { id: true, last_sell_price: true },
@@ -357,14 +360,16 @@ export const SaleController = {
 
         for (const item of body.cartItems) {
             // A scanned line is priced from the batch its label belongs to,
-            // exactly as before. An unscanned one is priced from the variant's
-            // shelf price. Both come from the database, never from the request.
+            // exactly as before. A line with no batch — unscanned, or scanned
+            // from a label that was never tied to a purchase — is priced from
+            // the variant's shelf price. Both come from the database, never
+            // from the request.
             const barcodeId = item.barcode ? barcodeCodeToId.get(item.barcode) : undefined;
             const allocation = barcodeId ? allocationByBarcodeId.get(barcodeId) : undefined;
 
-            const rawPrice = allocation
-                ? allocation.purchaseItem.sell_price
-                : shelfPriceByVariantId.get(item.variantId);
+            const rawPrice =
+                allocation?.purchaseItem?.sell_price ??
+                shelfPriceByVariantId.get(item.variantId);
 
             if (rawPrice === undefined) {
                 return sendError(

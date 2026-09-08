@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { normalizeProductName } from "@/lib/product-name-normalizer";
+import { barcodeCandidates } from "@/lib/barcode";
 import type { CreateProduct, CreateProductVariantSepa, UpdateProduct, UpdateProductVariant } from "@myapp/shared/schemas/product.schema";
 import type { IdBody } from "@myapp/shared/schemas/helper";
 import { ProductService } from "@/services/product.service";
@@ -226,24 +227,31 @@ export const ProductController = {
         return sendSuccess(c, formattedProducts, "Products for purchase fetched successfully", 200);
     },
 
+    /**
+     * Resolve any scanned symbol to the cart entry it represents.
+     *
+     * The reader is format-agnostic on purpose. Most stock in a shop carries a
+     * barcode the shop did not print — the manufacturer's EAN-13 on a carton, a
+     * supplier's Code-128 — and a till that only recognised its own generated
+     * labels would be useless for all of it. Any code the merchant has
+     * registered against a variant resolves here; everything else comes back
+     * 404 with the code echoed, so the caller can say which label it was
+     * holding rather than "scan failed".
+     *
+     * The same physical label decodes differently depending on the reader (a
+     * UPC-A is 12 digits to one scanner and 13 to another), so the lookup
+     * matches on every form the code could have arrived in.
+     */
     async getByBarcode(c: Context) {
-        const barcode = c.req.param("barcode");
-        if (!barcode?.trim()) {
+        const scanned = c.req.param("barcode") ?? "";
+        const candidates = barcodeCandidates(scanned);
+        if (candidates.length === 0) {
             return sendError(c, "Invalid barcode", "BAD_REQUEST", 400);
-        }
-
-
-        const barcodeData = await prisma.barcode.findUnique({
-            where: { code: barcode, status: BarcodeStatus.ALLOCATED },
-        });
-
-        if (!barcodeData) {
-            return sendError(c, "Barcode not found", "NOT_FOUND", 404);
         }
 
         const allocation = await prisma.variantBarcodeAllocation.findFirst({
             where: {
-                barcode_id: barcodeData.id,
+                barcode: { code: { in: candidates }, status: BarcodeStatus.ALLOCATED },
                 // Barcode codes stay globally unique — they are physical labels
                 // — so the tenant boundary is enforced on the product behind it.
                 // Without this, scanning another shop's label would sell their
@@ -251,12 +259,14 @@ export const ProductController = {
                 variant: { product: { shop_id: c.get("shopId") as string } },
             },
             include: {
+                barcode: { select: { code: true } },
                 purchaseItem: { select: { sell_price: true } },
                 variant: {
                     select: {
                         id: true,
                         name: true,
                         stock_on_hand: true,
+                        last_sell_price: true,
                         product: { select: { name: true } },
                     },
                 },
@@ -264,15 +274,34 @@ export const ProductController = {
         });
 
         if (!allocation) {
-            return sendError(c, "Barcode not found or not active", "NOT_FOUND", 404);
+            return sendError(
+                c,
+                `Barcode ${candidates[0]} is not registered to any product in this shop.`,
+                "BARCODE_NOT_FOUND",
+                404,
+            );
         }
 
-        const { variant, purchaseItem } = allocation;
+        const { variant, purchaseItem, barcode } = allocation;
+        // A label allocated to a purchase batch is priced from it, exactly as
+        // the unit was bought. A label with no batch behind it — opening stock,
+        // or a manufacturer code linked to something already on the shelf — is
+        // priced from the variant's shelf price.
+        const price = purchaseItem?.sell_price ?? variant.last_sell_price;
+        if (price === null) {
+            return sendError(
+                c,
+                `${variant.product.name} has no price yet. Set one on the product page, or record a purchase.`,
+                "NO_PRICE",
+                422,
+            );
+        }
+
         const result: CartEntryProduct = {
             variantId: variant.id,
             name: `${variant.product.name}${variant.name ? ` - ${variant.name}` : ""}`,
-            price: Number(purchaseItem.sell_price),
-            barcode: barcodeData.code,
+            price: Number(price),
+            barcode: barcode.code,
             availableStock: variant.stock_on_hand,
         };
         return sendSuccess(c, result, "Variant fetched successfully", 200);
@@ -305,21 +334,28 @@ export const ProductController = {
                         id: true,
                         name: true,
                         stock_on_hand: true,
+                        last_sell_price: true,
                         product: { select: { name: true } },
                     },
                 },
             },
         });
 
-        if (allocation) {
-            const { variant, purchaseItem, barcode } = allocation;
+        // An allocation with no batch behind it is priced from the variant's
+        // shelf price — the same rule the till applies to a scanned label.
+        const allocationPrice = allocation
+            ? (allocation.purchaseItem?.sell_price ?? allocation.variant.last_sell_price)
+            : null;
+
+        if (allocation && allocationPrice !== null) {
+            const { variant, barcode } = allocation;
 
             return sendSuccess(
                 c,
                 {
                     variantId: variant.id,
                     name: `${variant.product.name}${variant.name ? ` - ${variant.name}` : ""}`,
-                    price: Number(purchaseItem.sell_price),
+                    price: Number(allocationPrice),
                     barcode: barcode.code,
                     availableStock: variant.stock_on_hand,
                 } satisfies CartEntryProduct,
@@ -385,21 +421,26 @@ export const ProductController = {
                         id: true,
                         name: true,
                         stock_on_hand: true,
+                        last_sell_price: true,
                         product: { select: { name: true } },
                     },
                 },
             },
         });
 
-        if (allocation) {
-            const { variant, purchaseItem, barcode } = allocation;
+        const allocationPrice = allocation
+            ? (allocation.purchaseItem?.sell_price ?? allocation.variant.last_sell_price)
+            : null;
+
+        if (allocation && allocationPrice !== null) {
+            const { variant, barcode } = allocation;
 
             return sendSuccess(
                 c,
                 {
                     variantId: variant.id,
                     name: `${variant.product.name}${variant.name ? ` - ${variant.name}` : ""}`,
-                    price: Number(purchaseItem.sell_price),
+                    price: Number(allocationPrice),
                     barcode: barcode.code,
                     availableStock: variant.stock_on_hand,
                 } satisfies CartEntryProduct,
