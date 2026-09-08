@@ -161,6 +161,7 @@ function PurchaseItemRow({
         <Input
           inputMode="decimal"
           placeholder="0"
+          className="text-right tabular-nums"
           value={String(row.quantity ?? "")}
           disabled={!row.variantId}
           aria-label="Quantity"
@@ -173,6 +174,7 @@ function PurchaseItemRow({
         <Input
           inputMode="decimal"
           placeholder="0.00"
+          className="text-right tabular-nums"
           value={String(row.unitCost ?? "")}
           disabled={!row.variantId}
           aria-label="Unit cost"
@@ -185,6 +187,7 @@ function PurchaseItemRow({
         <Input
           inputMode="decimal"
           placeholder="0.00"
+          className="text-right tabular-nums"
           value={String(row.sellingPrice ?? "")}
           disabled={!row.variantId}
           aria-label="Selling price"
@@ -193,7 +196,7 @@ function PurchaseItemRow({
       </TableCell>
 
       {/* Row Total */}
-      <TableCell className="py-2">
+      <TableCell className="py-2 pr-3 text-right">
         <span className="font-medium tabular-nums whitespace-nowrap text-sm">
           {rowTotal > 0 ? (
             formatCurrencyInBDT(rowTotal)
@@ -297,6 +300,7 @@ function PurchaseItemCard({
           <Input
             inputMode="decimal"
             placeholder="0"
+            className="text-right tabular-nums"
             value={String(row.quantity ?? "")}
             disabled={!row.variantId}
             aria-label="Quantity"
@@ -308,6 +312,7 @@ function PurchaseItemCard({
           <Input
             inputMode="decimal"
             placeholder="0.00"
+            className="text-right tabular-nums"
             value={String(row.unitCost ?? "")}
             disabled={!row.variantId}
             aria-label="Unit cost"
@@ -319,6 +324,7 @@ function PurchaseItemCard({
           <Input
             inputMode="decimal"
             placeholder="0.00"
+            className="text-right tabular-nums"
             value={String(row.sellingPrice ?? "")}
             disabled={!row.variantId}
             aria-label="Selling price"
@@ -465,16 +471,24 @@ export default function PurchaseItemsSection({
       </CardContent>
 
       <CardContent className="pb-4 overflow-x-auto hidden md:block">
-        <Table className="min-w-[780px]">
+        <Table className="min-w-[860px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="bg-muted w-6 pl-4">#</TableHead>
-              <TableHead className="bg-muted w-[35%]">Product</TableHead>
-              <TableHead className="bg-muted w-[12%]">Qty</TableHead>
-              <TableHead className="bg-muted w-[14%]">Unit Cost (৳)</TableHead>
-              <TableHead className="bg-muted w-[14%]">Sell Price (৳)</TableHead>
-              <TableHead className="bg-muted w-[12%]">Total</TableHead>
-              <TableHead className="bg-muted w-[5%]" />
+              <TableHead className="bg-muted w-10 pl-4">#</TableHead>
+              <TableHead className="bg-muted w-[30%]">Product</TableHead>
+              <TableHead className="bg-muted w-[11%] whitespace-nowrap">
+                Qty
+              </TableHead>
+              <TableHead className="bg-muted w-[15%] whitespace-nowrap">
+                Unit Cost (৳)
+              </TableHead>
+              <TableHead className="bg-muted w-[15%] whitespace-nowrap">
+                Sell Price (৳)
+              </TableHead>
+              <TableHead className="bg-muted w-[15%] whitespace-nowrap text-right pr-3">
+                Total
+              </TableHead>
+              <TableHead className="bg-muted w-12" />
             </TableRow>
           </TableHeader>
 
@@ -530,7 +544,7 @@ export default function PurchaseItemsSection({
                 >
                   Grand Total
                 </td>
-                <td className="py-3 font-bold tabular-nums text-sm whitespace-nowrap">
+                <td className="py-3 pr-3 text-right font-bold tabular-nums text-sm whitespace-nowrap">
                   {formatCurrencyInBDT(grandTotal)}
                 </td>
                 <td />

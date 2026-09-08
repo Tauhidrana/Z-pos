@@ -87,6 +87,96 @@ describe('POST /api/purchase/create', () => {
     })
 })
 
+/**
+ * The New Purchase Order form posts its untouched fields as "", not undefined.
+ *
+ * `z.string().email().optional()` does not accept that — "" is still a string,
+ * so it reached the email check and failed — and a rejected submit produces no
+ * request at all. The result was a "Create Purchase Order" button that did
+ * nothing whenever the optional email was left blank, which is the normal case.
+ */
+describe('POST /api/purchase/create — blank optional fields', () => {
+    function mockHappyPath() {
+        mockPrisma.productVariant.findMany
+            .mockResolvedValueOnce([{ id: VARIANT_ID }])
+            .mockResolvedValueOnce([
+                { id: VARIANT_ID, name: 'Red', product: { name: 'T-Shirt' } },
+            ])
+        mockPrisma.supplier.upsert.mockResolvedValueOnce({ id: 'sup-1' })
+        mockPrisma.purchase.create.mockResolvedValueOnce({ id: PURCHASE_ID })
+        mockPrisma.purchaseItem.findMany.mockResolvedValueOnce([
+            { id: 'pi-1', variant_id: VARIANT_ID, quantity: 2 },
+        ])
+        mockPrisma.$queryRaw
+            .mockResolvedValueOnce([{ id: VARIANT_ID, stock_on_hand: 0 }])
+            .mockResolvedValueOnce([{ serial: 1001 }])
+        mockPrisma.barcode.findMany.mockResolvedValueOnce([
+            { id: 'bc-1', code: generateEAN13(1001) },
+        ])
+    }
+
+    it('accepts the empty strings an untouched form submits', async () => {
+        mockHappyPath()
+
+        const res = await post(app, '/api/purchase/create', {
+            ...VALID_PURCHASE_BODY,
+            email: '',
+            invoiceNo: '',
+            note: '',
+        })
+        expect(res.status).toBe(200)
+    })
+
+    it('stores nothing rather than an empty string', async () => {
+        // Otherwise "no invoice number" and "a blank invoice number" become two
+        // different rows to every later query.
+        mockHappyPath()
+
+        await post(app, '/api/purchase/create', {
+            ...VALID_PURCHASE_BODY,
+            email: '',
+            invoiceNo: '',
+            note: '',
+        })
+
+        const supplier = mockPrisma.supplier.upsert.mock.calls[0]![0] as any
+        expect(supplier.create.email).toBeUndefined()
+
+        const purchase = mockPrisma.purchase.create.mock.calls[0]![0] as any
+        expect(purchase.data.invoice_no).toBeUndefined()
+        expect(purchase.data.note).toBeUndefined()
+    })
+
+    it('trims a value the user did type', async () => {
+        mockHappyPath()
+
+        await post(app, '/api/purchase/create', {
+            ...VALID_PURCHASE_BODY,
+            invoiceNo: '  INV-2401-001  ',
+        })
+
+        const purchase = mockPrisma.purchase.create.mock.calls[0]![0] as any
+        expect(purchase.data.invoice_no).toBe('INV-2401-001')
+    })
+
+    it('still rejects an email that is genuinely malformed', async () => {
+        // Optional means "may be absent", not "never checked".
+        const res = await post(app, '/api/purchase/create', {
+            ...VALID_PURCHASE_BODY,
+            email: 'not-an-email',
+        })
+        expect(res.status).toBe(422)
+    })
+
+    it('still requires a supplier name that is more than whitespace', async () => {
+        const res = await post(app, '/api/purchase/create', {
+            ...VALID_PURCHASE_BODY,
+            supplier: '   ',
+        })
+        expect(res.status).toBe(422)
+    })
+})
+
 describe('DELETE /api/purchase/delete', () => {
     it('returns 422 when id is missing', async () => {
         const res = await del(app, '/api/purchase/delete', {})

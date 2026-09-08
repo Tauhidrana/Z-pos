@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { zodUUID, decimalNumber, zodDate, bangladeshiPhoneSchema } from "./helper";
+import { zodUUID, decimalNumber, zodDate, bangladeshiPhoneSchema, emailOptional, textOptional } from "./helper";
 
 const product = z.object({
     variantId: zodUUID,
@@ -11,12 +11,14 @@ const product = z.object({
 
 export const newPurchaseSchema = z.object({
     date: zodDate,
-    invoiceNo: z.string().optional(),
-    supplier: z.string().min(1, "Supplier name is required"),
-    email: z.string().email("Invalid email").optional(),
+    invoiceNo: textOptional,
+    supplier: z.string().trim().min(1, "Supplier name is required"),
+    // Blank means "no email", not "an invalid one" — the form labels this
+    // field optional and has to behave that way.
+    email: emailOptional,
     phone: bangladeshiPhoneSchema,
-    note: z.string().optional(),
-    products: z.array(product).min(1, "At least one product is required"),
+    note: textOptional,
+    products: z.array(product).min(1, "Add at least one item to the order"),
 })
 
 export type NewPurchase = z.input<typeof newPurchaseSchema>

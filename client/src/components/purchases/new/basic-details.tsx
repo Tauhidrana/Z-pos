@@ -29,8 +29,8 @@ export default function BasicDetailsSection({ form }: BasicDetailsProps) {
   const [calendarOpen, setCalendarOpen] = useState(false);
 
   return (
-    <Card className="p-6">
-      <div className="mb-6">
+    <Card className="p-4 sm:p-6">
+      <div className="mb-5 sm:mb-6">
         <h2 className="text-lg font-semibold text-foreground">Order Details</h2>
         <p className="text-sm text-muted-foreground mt-0.5">
           Enter basic purchase order information
@@ -43,7 +43,7 @@ export default function BasicDetailsSection({ form }: BasicDetailsProps) {
           control={form.control}
           name="date"
           render={({ field }) => (
-            <FormItem className="flex flex-col">
+            <FormItem>
               <FormLabel>
                 Order Date <span className="text-destructive">*</span>
               </FormLabel>
@@ -53,7 +53,7 @@ export default function BasicDetailsSection({ form }: BasicDetailsProps) {
                     <Button
                       type="button"
                       variant="outline"
-                      className="pl-3 text-left font-normal w-full justify-start"
+                      className="h-9 w-full justify-start pl-3 text-left font-normal"
                     >
                       <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground shrink-0" />
                       {field.value instanceof Date ? (
